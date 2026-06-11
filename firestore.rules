@@ -1,0 +1,130 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Caller has a valid Firebase auth token (anonymous sign-in completed).
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Caller is a member of the given room. Used to gate most room reads/writes;
+    // not used for member document creation itself (that would be circular on join).
+    function isMember(roomCode) {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/rooms/$(roomCode)/members/$(request.auth.uid));
+    }
+
+    // ------------------------------------------------------------------
+    // Global: show participant lists
+    // Read-only to clients; only writable via Admin SDK (maintenance scripts).
+    // ------------------------------------------------------------------
+    match /shows/{showId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Global: official results
+    // Read-only to clients; only writable via Admin SDK (maintenance scripts).
+    // ------------------------------------------------------------------
+    match /results/{showId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      match /entries/{order} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Room metadata
+    // ------------------------------------------------------------------
+    match /rooms/{roomCode} {
+
+      // Any authenticated user may read a room document. This is intentionally
+      // broad: the join flow must be able to verify a room code before the user
+      // is a member. Room metadata contains no sensitive data (only timestamps).
+      allow read: if isAuthenticated();
+
+      // Any authenticated user may create a room (host flow).
+      allow create: if isAuthenticated();
+
+      // Members may update lastActivityAt only (for cleanup age tracking).
+      allow update: if isMember(roomCode)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['lastActivityAt']);
+
+      // Rooms are never deleted by clients; cleanup is done server-side only.
+      allow delete: if false;
+
+
+      // ----------------------------------------------------------------
+      // Members sub-collection
+      // ----------------------------------------------------------------
+      match /members/{uid} {
+
+        // Any member of this room may read any member document (UID → username resolution).
+        // A user may also read their own member document even before they are a member —
+        // the joinRoom transaction reads it to preserve joinedAt on re-join, and isMember()
+        // would be false at that point (same reasoning as the create/update rules below).
+        allow read: if isMember(roomCode)
+          || (isAuthenticated() && uid == request.auth.uid);
+
+        // A user may only create or update their own member document.
+        // Uses isAuthenticated() (not isMember()) because the document does not
+        // exist yet at the moment of creation — isMember() would always be false.
+        allow create: if isAuthenticated() && uid == request.auth.uid;
+        allow update: if isAuthenticated() && uid == request.auth.uid;
+        allow delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // Username uniqueness lock documents
+      // ----------------------------------------------------------------
+      match /usernames/{username} {
+        // Must be readable by non-members so the join transaction can check username
+        // uniqueness before the caller's member document exists.
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isAuthenticated() && resource.data.uid == request.auth.uid;
+        allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      }
+
+
+      // ----------------------------------------------------------------
+      // Votes
+      // ----------------------------------------------------------------
+      match /votes/{showId}/entries/{order} {
+        allow read: if isMember(roomCode);
+
+        // First vote for this entry (document does not yet exist):
+        // only allow if the document being created contains solely the
+        // caller's own UID as a field.
+        allow create: if isMember(roomCode)
+          && request.resource.data.keys().hasOnly([request.auth.uid]);
+
+        // Subsequent votes (document already exists with other users' fields):
+        // only allow if the diff between old and new state touches solely the
+        // caller's own UID field. This prevents overwriting anyone else's score.
+        allow update: if isMember(roomCode)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly([request.auth.uid]);
+
+        allow delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // Top-3 guesses (final only)
+      // ----------------------------------------------------------------
+      match /guesses/{showId}/picks/{uid} {
+        allow read: if isMember(roomCode);
+        allow create: if isMember(roomCode) && uid == request.auth.uid;
+        allow update: if isMember(roomCode) && uid == request.auth.uid;
+        allow delete: if false;
+      }
+    }
+  }
+}

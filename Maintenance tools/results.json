@@ -1,0 +1,30 @@
+{
+  "year": 2026,
+  "entries": [
+    {"order": 1,  "rank": 7,  "juryScore": 165, "publicScore": 78},
+    {"order": 2,  "rank": 23, "juryScore": 12,  "publicScore": 0},
+    {"order": 3,  "rank": 2,  "juryScore": 123, "publicScore": 220},
+    {"order": 4,  "rank": 21, "juryScore": 36,  "publicScore": 0},
+    {"order": 5,  "rank": 13, "juryScore": 60,  "publicScore": 85},
+    {"order": 6,  "rank": 10, "juryScore": 73,  "publicScore": 147},
+    {"order": 7,  "rank": 9,  "juryScore": 54,  "publicScore": 167},
+    {"order": 8,  "rank": 4,  "juryScore": 165, "publicScore": 122},
+    {"order": 9,  "rank": 17, "juryScore": 38,  "publicScore": 52},
+    {"order": 10, "rank": 18, "juryScore": 81,  "publicScore": 8},
+    {"order": 11, "rank": 16, "juryScore": 104, "publicScore": 9},
+    {"order": 12, "rank": 1,  "juryScore": 204, "publicScore": 312},
+    {"order": 13, "rank": 15, "juryScore": 53,  "publicScore": 71},
+    {"order": 14, "rank": 25, "juryScore": 1,   "publicScore": 0},
+    {"order": 15, "rank": 11, "juryScore": 144, "publicScore": 14},
+    {"order": 16, "rank": 8,  "juryScore": 43,  "publicScore": 183},
+    {"order": 17, "rank": 6,  "juryScore": 141, "publicScore": 138},
+    {"order": 18, "rank": 12, "juryScore": 133, "publicScore": 17},
+    {"order": 19, "rank": 22, "juryScore": 10,  "publicScore": 12},
+    {"order": 20, "rank": 20, "juryScore": 35,  "publicScore": 16},
+    {"order": 21, "rank": 19, "juryScore": 41,  "publicScore": 34},
+    {"order": 22, "rank": 5,  "juryScore": 134, "publicScore": 147},
+    {"order": 23, "rank": 14, "juryScore": 115, "publicScore": 19},
+    {"order": 24, "rank": 3,  "juryScore": 64,  "publicScore": 232},
+    {"order": 25, "rank": 24, "juryScore": 1,   "publicScore": 5}
+  ]
+}

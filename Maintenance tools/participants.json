@@ -1,0 +1,31 @@
+{
+  "final": [
+    {"order": 1,  "country": "Denmark",       "artist": "Søren Torpegaard Lund",            "song": "Før vi går hjem"},
+    {"order": 2,  "country": "Germany",        "artist": "Sarah Engels",                     "song": "Fire"},
+    {"order": 3,  "country": "Israel",         "artist": "Noam Bettan",                      "song": "Michelle"},
+    {"order": 4,  "country": "Belgium",        "artist": "Essyla",                           "song": "Dancing on the Ice"},
+    {"order": 5,  "country": "Albania",        "artist": "Alis",                             "song": "Nân"},
+    {"order": 6,  "country": "Greece",         "artist": "Akylas",                           "song": "Ferto"},
+    {"order": 7,  "country": "Ukraine",        "artist": "Leléka",                           "song": "Ridnym"},
+    {"order": 8,  "country": "Australia",      "artist": "Delta Goodrem",                    "song": "Eclipse"},
+    {"order": 9,  "country": "Serbia",         "artist": "Lavina",                           "song": "Kraj mene"},
+    {"order": 10, "country": "Malta",          "artist": "Aidan",                            "song": "Bella"},
+    {"order": 11, "country": "Czechia",        "artist": "Daniel Žižka",                     "song": "Crossroads"},
+    {"order": 12, "country": "Bulgaria",       "artist": "Dara",                             "song": "Bangaranga"},
+    {"order": 13, "country": "Croatia",        "artist": "Lelek",                            "song": "Andromeda"},
+    {"order": 14, "country": "United Kingdom", "artist": "Look Mum No Computer",             "song": "Eins, Zwei, Drei"},
+    {"order": 15, "country": "France",         "artist": "Monroe",                           "song": "Regarde!"},
+    {"order": 16, "country": "Moldova",        "artist": "Satoshi",                          "song": "Viva, Moldova!"},
+    {"order": 17, "country": "Finland",        "artist": "Linda Lampenius & Pete Parkkonen", "song": "Liekinheitin"},
+    {"order": 18, "country": "Poland",         "artist": "Alicja",                           "song": "Pray"},
+    {"order": 19, "country": "Lithuania",      "artist": "Lion Ceccah",                      "song": "Sólo quiero más"},
+    {"order": 20, "country": "Sweden",         "artist": "Felicia",                          "song": "My System"},
+    {"order": 21, "country": "Cyprus",         "artist": "Antigoni",                         "song": "Jalla"},
+    {"order": 22, "country": "Italy",          "artist": "Sal Da Vinci",                     "song": "Per sempre sì"},
+    {"order": 23, "country": "Norway",         "artist": "Jonas Lovv",                       "song": "Ya Ya Ya"},
+    {"order": 24, "country": "Romania",        "artist": "Alexandra Căpitănescu",            "song": "Choke Me"},
+    {"order": 25, "country": "Austria",        "artist": "Cosmó",                            "song": "Tanzschein"}
+  ],
+  "semi1": [],
+  "semi2": []
+}

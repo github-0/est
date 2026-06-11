@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EST — Eurovision Score Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#15121d;
+  --bg-2:#1c1828;
+  --card:#221d31;
+  --text:#f1edf8;
+  --muted:#948ba9;
+  --gold:#ffc83d;
+  --cyan:#38d9f5;
+  --purple:#a64dff;
+  --pink:#ff3a8c;
+  --grad:linear-gradient(100deg,var(--cyan) 0%,var(--purple) 52%,var(--pink) 100%);
+  --line:rgba(255,255,255,0.08);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:'Hanken Grotesk',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;-webkit-font-smoothing:antialiased;}
+h2{font-family:'Schibsted Grotesk',sans-serif;font-size:1rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;}
+a{color:var(--gold);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.container{max-width:760px;margin:0 auto;padding:0 32px;}
+
+/* lang switcher */
+.lang-bar{position:fixed;top:16px;left:max(20px,calc(50vw - 348px));z-index:100;display:flex;gap:2px;background:rgba(21,18,29,0.7);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:999px;padding:3px;}
+.lang-btn{border:none;background:none;color:var(--muted);font-family:'Schibsted Grotesk';font-weight:700;font-size:.72rem;letter-spacing:.10em;padding:5px 12px;border-radius:999px;cursor:pointer;transition:all .15s;}
+.lang-btn.active{background:var(--gold);color:#1a1206;}
+.lang-btn:not(.active):hover{color:var(--text);}
+
+/* intro */
+.intro{padding:36px 0 64px;display:grid;grid-template-columns:1fr auto;gap:56px;align-items:center;}
+.intro-banner{display:block;width:400px;height:65px;object-fit:cover;margin:0 0 32px -10px;}
+.intro-text p{font-size:1.08rem;color:var(--muted);max-width:520px;margin-bottom:12px;}
+.intro-text p b{color:var(--text);font-weight:600;}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:24px;}
+.dl-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:999px;background:var(--gold);color:#1a1206;font-family:'Schibsted Grotesk';font-weight:700;font-size:.9rem;transition:all .15s;}
+.dl-btn:hover{background:#ffd96b;text-decoration:none;transform:translateY(-1px);}
+.gh-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:999px;background:transparent;color:var(--text);border:1.5px solid var(--line);font-family:'Schibsted Grotesk';font-weight:700;font-size:.9rem;transition:all .15s;}
+.gh-btn:hover{border-color:rgba(255,255,255,0.3);text-decoration:none;transform:translateY(-1px);}
+.phone{width:210px;flex-shrink:0;border-radius:34px;padding:9px;background:#1c1728;box-shadow:24px 28px 60px -24px rgba(0,0,0,.7),0 0 0 1px var(--line);display:flex;flex-direction:column;}
+.phone img{display:block;width:100%;}
+.screen{border-radius:25px;overflow:hidden;}
+.status-bar{height:6px;background:#0d0c1e;}
+.slider-wrap{overflow:hidden;}
+.slider-track{display:flex;will-change:transform;transition:transform .45s cubic-bezier(.4,0,.2,1);}
+.phone .slider-track img{flex-shrink:0;border-radius:0;}
+
+/* divider */
+hr{border:0;border-top:1px solid var(--line);margin:0;}
+
+/* sections */
+.section{padding:56px 0;}
+
+/* feature list */
+ul.feat{list-style:none;display:flex;flex-direction:column;gap:0;}
+ul.feat li{padding:14px 0;border-bottom:1px solid var(--line);font-size:1rem;color:var(--muted);display:flex;gap:14px;align-items:flex-start;}
+ul.feat li span{flex:1;}
+ul.feat li:first-child{border-top:1px solid var(--line);}
+ul.feat li::before{content:"—";color:var(--gold);font-weight:700;flex-shrink:0;}
+ul.feat li b{color:var(--text);font-weight:600;}
+
+/* tech list */
+ul.tech{list-style:none;display:flex;flex-direction:column;gap:0;}
+ul.tech li{padding:14px 0;border-bottom:1px solid var(--line);font-size:.98rem;color:var(--muted);display:flex;gap:14px;align-items:baseline;}
+ul.tech li:first-child{border-top:1px solid var(--line);}
+ul.tech li::before{content:"·";color:var(--muted);flex-shrink:0;font-size:1.2rem;line-height:1.4;}
+ul.tech li code{font-family:monospace;font-size:.9em;background:var(--card);padding:2px 7px;border-radius:4px;color:var(--cyan);}
+ul.tech li a{color:inherit;text-decoration:underline;}
+ul.tech li a:hover{opacity:0.75;text-decoration:underline;}
+ul.tech li .sub{display:block;position:relative;padding-left:14px;margin-top:6px;font-size:.92em;}
+ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
+
+@media(max-width:640px){
+  .intro{grid-template-columns:1fr;gap:36px;}
+  .phone{width:160px;justify-self:center;}
+  .intro-banner{width:280px;height:auto;}
+  .lang-bar{left:auto;right:16px;}
+}
+</style>
+</head>
+<body>
+
+<div class="lang-bar">
+  <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+  <button class="lang-btn" id="btn-fi" onclick="setLang('fi')">FI</button>
+</div>
+
+<main>
+  <div class="container">
+
+    <section class="intro" id="top">
+      <div class="intro-text">
+        <img class="intro-banner" src="assets/banner_full.png" alt="EST — Eurovision Score Tracker">
+        <p><span data-t="desc-prefix"></span><b data-t="desc-bold"></b> <span data-t="desc-rest"></span></p>
+        <p data-t="tagline"></p>
+        <div class="btn-row">
+          <a class="dl-btn" href="https://github.com/github-0/est/releases/latest" data-t="dl"></a>
+          <a class="gh-btn" href="https://github.com/github-0/est">GitHub ↗</a>
+        </div>
+      </div>
+      <div class="phone">
+        <div class="screen">
+        <div class="status-bar"></div>
+        <div class="slider-wrap">
+          <div class="slider-track" id="slider-track">
+            <img data-screen="select" src="assets/screenshots/en_select.jpg" alt="Select show">
+            <img data-screen="joined" src="assets/screenshots/en_joined.jpg" alt="Room">
+            <img data-screen="points" src="assets/screenshots/en_points.jpg" alt="Points">
+            <img data-screen="summary" src="assets/screenshots/en_summary.jpg" alt="Summary">
+            <img data-screen="aftershow" src="assets/screenshots/en_aftershow.jpg" alt="Aftershow">
+          </div>
+        </div>
+        </div>
+      </div>
+    </section>
+
+
+
+    <section class="section" id="features">
+      <h2 data-t="feat-head"></h2>
+      <ul class="feat" id="feat-list"></ul>
+    </section>
+
+
+
+    <section class="section" id="technical">
+      <h2 data-t="tech-head"></h2>
+      <ul class="tech" id="tech-list"></ul>
+    </section>
+
+  </div>
+</main>
+
+<script>
+let carouselReset;
+const i18n = {
+  en: {
+    'desc-prefix': 'An Android app for ',
+    'desc-bold': 'scoring Eurovision entries in real time',
+    'desc-rest': 'with your group, from the same couch or remotely. Scores sync between all devices. Guess the winners and see post-show analytics.',
+    'tagline': 'No accounts, no ads.',
+    'dl': '↓\u2002Download APK',
+    'feat-head': 'Features',
+    'tech-head': 'Technical',
+    feats: [
+      ['Score entries', 'give 1–12 points for each entry as the show plays out'],
+      ['Group sync', 'see in real time what others in your group are voting'],
+      ['Top 3 predictions', 'guess the final\'s placements before the results are announced'],
+      ['Aftershow', 'see how your group voted and compare your scores to the official results'],
+      ['No registration needed', 'join a group room with a code'],
+    ],
+    techs: [
+      'Using this app requires installing it outside the Play Store.<span class="sub">Understand <a href="https://support.google.com/android/answer/9457058" target="_blank">what this means</a> and always verify before installing that you trust the source.</span><span class="sub">Follow your phone\'s prompts to grant permission to install apps from unknown sources.</span><span class="sub">Beyond an internet connection, the app requires no special permissions.</span><span class="sub">If you prefer, you can build your own .apk from the app\'s source code.</span>',
+      'The app connects to a shared Google Firestore backend. You can use your own Firestore instance by building the .apk from source.',
+      'Participant data and official results for the shared instance are updated manually each year.',
+      'Your data is purged from the database periodically.',
+      'No data collection except for what you type in yourself.',
+    ]
+  },
+  fi: {
+    'desc-prefix': 'Android-sovellus ',
+    'desc-bold': 'Eurovision-esitysten pisteytykseen reaaliajassa',
+    'desc-rest': 'ryhmäsi kesken, samalta sohvalta tai etänä. Pisteet synkronoituvat kaikkien laitteiden välillä. Arvaa voittajat ja katso finaalin jälkeinen analytiikka.',
+    'tagline': 'Ei rekisteröintejä, ei mainoksia.',
+    'dl': '↓\u2002Lataa APK',
+    'feat-head': 'Ominaisuudet',
+    'tech-head': 'Tekniset tiedot',
+    feats: [
+      ['Pisteytä esitykset', 'anna 1–12 pistettä jokaiselle esitykselle ohjelman edetessä'],
+      ['Ryhmän mielipiteet', 'näe reaaliajassa, mitä muut ryhmässäsi äänestävät'],
+      ['Top 3 -arvaukset', 'arvaa finaalin sijoitukset ennen tulosten julkistamista'],
+      ['Aftershow', 'näe kuinka ryhmäsi äänesti ja vertaa pisteitänne virallisiin tuloksiin'],
+      ['Ei rekisteröintiä', 'liity ryhmäkohtaiseen huoneeseen koodilla'],
+    ],
+    techs: [
+      'Tämän sovelluksen käyttö vaatii sen asennuksen Play Storen ulkopuolelta.<span class="sub">Ymmärrä <a href="https://support.google.com/android/answer/9457058?hl=fi" target="_blank">mitä tämä tarkoittaa</a> ja varmista aina ennen asennusta, että luotat sovelluksen lähteeseen.</span><span class="sub">Seuraa puhelimesi ohjeita myöntääksesi luvan sovelluksien asentamiselle tuntemattomista lähteistä.</span><span class="sub">Sovelluksen käyttö ei vaadi Android-laitteelta internet-yhteyden lisäksi muita käyttöoikeuksia.</span><span class="sub">Halutessasi voit tuottaa oman .apk -tiedoston sovelluksen lähdekoodista.</span>',
+      'Sovellus yhdistää jaettuun Google Firestore -taustajärjestelmään. Voit käyttää omaa Firestore-instanssiasi tuottamalla .apk -tiedoston lähdekoodista.',
+      'Jaetun Firestore-instanssin osallistujatiedot ja tulokset päivitetään manuaalisesti joka vuosi.',
+      'Syöttämäsi data poistetaan tietokannasta ajoittain.',
+      'Sovellus ei kerää muita tietoja itse syöttämiesi tietojen lisäksi.',
+    ]
+  }
+};
+
+function setLang(lang) {
+  const t = i18n[lang];
+  document.querySelectorAll('[data-t]').forEach(el => {
+    const key = el.dataset.t;
+    if (t[key] !== undefined) el.textContent = t[key];
+  });
+  // feature list
+  const fl = document.getElementById('feat-list');
+  fl.innerHTML = t.feats.map(([b,r]) => `<li><span><b>${b}</b> — ${r}</span></li>`).join('');
+  // tech list
+  const tl = document.getElementById('tech-list');
+  tl.innerHTML = t.techs.map(s => `<li><span>${s}</span></li>`).join('');
+  // toggle buttons
+  document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+  document.getElementById('btn-fi').classList.toggle('active', lang === 'fi');
+  document.documentElement.lang = lang;
+  localStorage.setItem('lang', lang);
+  document.querySelectorAll('#slider-track [data-screen]').forEach(img => {
+    img.src = `assets/screenshots/${lang}_${img.dataset.screen}.jpg`;
+  });
+  if (typeof carouselReset === 'function') carouselReset();
+}
+
+// Auto-detect: stored pref → browser language → default EN
+const stored = localStorage.getItem('lang');
+const browser = navigator.language.slice(0,2).toLowerCase();
+const initial = stored || (['fi'].includes(browser) ? browser : 'en');
+setLang(initial);
+
+// Screenshot carousel
+(function(){
+  const track = document.getElementById('slider-track');
+  if (!track) return;
+  const slides = track.querySelectorAll('img');
+  const n = slides.length;
+  if (!n) return;
+
+  track.style.width = (n * 100) + '%';
+  slides.forEach(img => { img.style.width = `calc(100% / ${n})`; });
+
+  let cur = 0, timer;
+
+  function slideTo(i) {
+    cur = ((i % n) + n) % n;
+    track.style.transform = `translateX(-${cur * (100 / n)}%)`;
+  }
+
+  function resetTimer() {
+    clearInterval(timer);
+    timer = setInterval(() => slideTo(cur + 1), 4000);
+  }
+
+  const wrap = track.parentElement;
+  let tx0 = 0;
+  wrap.addEventListener('touchstart', e => { tx0 = e.touches[0].clientX; }, {passive: true});
+  wrap.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - tx0;
+    if (Math.abs(dx) > 30) {
+      slideTo(dx < 0 ? cur + 1 : cur - 1);
+      resetTimer();
+    }
+  });
+
+  carouselReset = () => { slideTo(0); resetTimer(); };
+  resetTimer();
+})();
+</script>
+</body>
+</html>
