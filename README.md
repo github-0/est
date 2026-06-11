@@ -4,13 +4,11 @@ An Android app for scoring Eurovision entries in real time with a group, from th
 
 **[→ App landing page](https://github-0.github.io/est)**
 
----
 
 ## Download
 
-Get the latest APK from [Releases](../../releases). Installing requires allowing apps from unknown sources — see [what this means](https://support.google.com/android/answer/9457058) before proceeding.
+Get the latest APK from [Releases](../../releases). 
 
----
 
 ## Build from source
 
