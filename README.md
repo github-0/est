@@ -12,7 +12,6 @@ Get the latest APK from [Releases](../../releases).
 
 ## Build from source
 
-Not a complete guide, 
 
 ### Prerequisites
 
