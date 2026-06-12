@@ -5,7 +5,12 @@ import android.graphics.BlurMaskFilter
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -80,8 +85,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
+import com.example.evfunenhancer.data.UpdateCheckResult
+import com.example.evfunenhancer.data.UpdateInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.TextRange
@@ -298,6 +307,46 @@ private fun SectionCard(content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun UpdateIndicator(info: UpdateInfo, label: String) {
+    val uriHandler = LocalUriHandler.current
+    val infiniteTransition = rememberInfiniteTransition(label = "ripple")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rippleProgress"
+    )
+    val dotColor = Color(0xFFFFA726)
+
+    Row(
+        modifier = Modifier.clickable(
+            indication = null,
+            interactionSource = remember { MutableInteractionSource() }
+        ) { uriHandler.openUri(info.releaseUrl) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Canvas(modifier = Modifier.size(14.dp)) {
+            val dotRadius = 3.5.dp.toPx()
+            val maxSpread = 8.dp.toPx()
+            drawCircle(
+                color = dotColor.copy(alpha = (1f - progress) * 0.75f),
+                radius = dotRadius + progress * maxSpread
+            )
+            drawCircle(color = dotColor, radius = dotRadius)
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = dotColor
+        )
+    }
+}
+
+@Composable
 private fun UsernameField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -405,6 +454,7 @@ fun UsernameShowScreen(
     val currentShowId by vm.selectedShowId.collectAsState()
     val shows by vm.shows.collectAsState()
     val members by vm.members.collectAsState()
+    val updateInfo by vm.updateInfo.collectAsState()
 
     var noRoomState by remember { mutableStateOf(NoRoomState.SELECTION) }
     var usernameText by remember { mutableStateOf(vm.savedUsername ?: "") }
@@ -973,25 +1023,50 @@ fun UsernameShowScreen(
         }
     }
 
-    Text(
-        text = s.disclaimerLabel,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .layout { measurable, constraints ->
-                val hPx = 24.dp.roundToPx()
-                val topPx = 20.dp.roundToPx()
-                val placeable = measurable.measure(constraints)
-                // Report natural width and original height (text + 12dp bottom gap) so
-                // align(BottomCenter) places the text at the same visual position as before.
-                layout(placeable.width - hPx * 2, placeable.height - topPx) {
-                    placeable.place(-hPx, -topPx)
+    if (updateInfo is UpdateCheckResult.Available) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp, start = 24.dp, end = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = s.disclaimerLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                modifier = Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onShowDisclaimer
+                )
+            )
+            Text(
+                "·",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+            )
+            UpdateIndicator(info = (updateInfo as UpdateCheckResult.Available).info, label = s.updateAvailable)
+        }
+    } else {
+        Text(
+            text = s.disclaimerLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .layout { measurable, constraints ->
+                    val hPx = 24.dp.roundToPx()
+                    val topPx = 20.dp.roundToPx()
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width - hPx * 2, placeable.height - topPx) {
+                        placeable.place(-hPx, -topPx)
+                    }
                 }
-            }
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onShowDisclaimer)
-            .padding(top = 20.dp, bottom = 12.dp, start = 24.dp, end = 24.dp),
-        textAlign = TextAlign.Center
-    )
+                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onShowDisclaimer)
+                .padding(top = 20.dp, bottom = 12.dp, start = 24.dp, end = 24.dp),
+            textAlign = TextAlign.Center
+        )
+    }
     } // end Box
 }

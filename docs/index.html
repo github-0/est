@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EST — Eurovision Score Tracker</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
@@ -37,7 +38,7 @@ a:hover{text-decoration:underline;}
 
 /* intro */
 .intro{padding:36px 0 40px;display:grid;grid-template-columns:1fr auto;gap:56px;align-items:center;}
-.intro-banner{display:block;width:400px;height:65px;object-fit:cover;margin:0 0 32px -10px;}
+.intro-banner{display:block;width:400px;height:65px;object-fit:cover;margin:0 0 20px -10px;}
 .intro-text p{font-size:1.08rem;color:var(--muted);max-width:520px;margin-bottom:12px;}
 .intro-text p b{color:var(--text);font-weight:600;}
 .btn-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:24px;}
@@ -81,7 +82,7 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
 @media(max-width:640px){
   .intro{grid-template-columns:1fr;gap:36px;}
   .phone{width:190px;justify-self:center;}
-  .intro-banner{width:280px;height:auto;}
+  .intro-banner{width:340px;height:auto;margin-top:10px;}
   .lang-bar{left:auto;right:16px;}
 }
 </style>
@@ -102,7 +103,7 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
         <p><span data-t="desc-prefix"></span><b data-t="desc-bold"></b> <span data-t="desc-rest"></span></p>
         <p data-t="tagline"></p>
         <div class="btn-row">
-          <a class="dl-btn" href="https://github.com/github-0/est/releases/latest" data-t="dl"></a>
+          <a class="dl-btn" href="https://github.com/github-0/est/releases/latest/download/app-release.apk" data-t="dl"></a>
           <a class="gh-btn" href="https://github.com/github-0/est">GitHub ↗</a>
         </div>
       </div>
@@ -160,14 +161,14 @@ const i18n = {
     techs: [
       'Using this app requires installing it outside the Play Store.<span class="sub">Understand <a href="https://support.google.com/android/answer/9457058" target="_blank">what this means</a> and always verify before installing that you trust the source.</span><span class="sub">Follow your phone\'s prompts to grant permission to install apps from unknown sources.</span><span class="sub">Beyond an internet connection, the app requires no special permissions.</span><span class="sub">If you prefer, you can build your own .apk from the app\'s source code.</span>',
       'The app connects to a shared Google Firestore backend. You can use your own Firestore instance by building the .apk from source.',
-      'Participant data and official results for the shared instance are updated manually each year.',
+      'Participant data and official results for the shared instance are updated manually each year by the apps developer.',
       'Your data is purged from the database periodically.',
       'No data collection except for what you type in yourself.',
     ]
   },
   fi: {
     'desc-prefix': 'Android-sovellus ',
-    'desc-bold': 'Eurovision-esitysten pisteytykseen reaaliajassa',
+    'desc-bold': 'Euroviisu-esitysten pisteytykseen reaaliajassa',
     'desc-rest': 'ryhmäsi kesken, samalta sohvalta tai etänä. Pisteet synkronoituvat kaikkien laitteiden välillä. Arvaa voittajat ja katso finaalin jälkeinen analytiikka.',
     'tagline': 'Ei rekisteröintejä, ei mainoksia.',
     'dl': '↓\u2002Lataa APK',
@@ -181,9 +182,9 @@ const i18n = {
       ['Ei rekisteröintiä', 'liity ryhmäkohtaiseen huoneeseen koodilla'],
     ],
     techs: [
-      'Tämän sovelluksen käyttö vaatii sen asennuksen Play Storen ulkopuolelta.<span class="sub">Ymmärrä <a href="https://support.google.com/android/answer/9457058?hl=fi" target="_blank">mitä tämä tarkoittaa</a> ja varmista aina ennen asennusta, että luotat sovelluksen lähteeseen.</span><span class="sub">Seuraa puhelimesi ohjeita myöntääksesi luvan sovelluksien asentamiselle tuntemattomista lähteistä.</span><span class="sub">Sovelluksen käyttö ei vaadi Android-laitteelta internet-yhteyden lisäksi muita käyttöoikeuksia.</span><span class="sub">Halutessasi voit tuottaa oman .apk -tiedoston sovelluksen lähdekoodista.</span>',
+      'Sovelluksen käyttö vaatii sen asennuksen Play Storen ulkopuolelta.<span class="sub">Ymmärrä <a href="https://support.google.com/android/answer/9457058?hl=fi" target="_blank">mitä tämä tarkoittaa</a> ja varmista aina ennen asennusta, että luotat sovelluksen lähteeseen.</span><span class="sub">Seuraa puhelimesi ohjeita myöntääksesi luvan sovelluksien asentamiselle tuntemattomista lähteistä.</span><span class="sub">Sovelluksen käyttö ei vaadi Android-laitteelta internet-yhteyden lisäksi muita käyttöoikeuksia.</span><span class="sub">Halutessasi voit tuottaa oman .apk -tiedoston sovelluksen lähdekoodista.</span>',
       'Sovellus yhdistää jaettuun Google Firestore -taustajärjestelmään. Voit käyttää omaa Firestore-instanssiasi tuottamalla .apk -tiedoston lähdekoodista.',
-      'Jaetun Firestore-instanssin osallistujatiedot ja tulokset päivitetään manuaalisesti joka vuosi.',
+      'Sovelluksen kehittäjä päivittää jaetun Firestore-instanssin osallistujatiedot ja tulokset manuaalisesti vuosittain.',
       'Syöttämäsi data poistetaan tietokannasta ajoittain.',
       'Sovellus ei kerää muita tietoja itse syöttämiesi tietojen lisäksi.',
     ]

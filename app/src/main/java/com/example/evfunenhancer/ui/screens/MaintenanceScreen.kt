@@ -36,11 +36,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.evfunenhancer.BuildConfig
+import com.example.evfunenhancer.data.UpdateCheckResult
 import com.example.evfunenhancer.ui.strings.LocalAppStrings
 import com.example.evfunenhancer.viewmodel.MainViewModel
 import kotlinx.coroutines.flow.collectLatest
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,6 +52,7 @@ import java.time.format.DateTimeFormatter
 fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) {
     val s = LocalAppStrings.current
 
+    val updateInfo by vm.updateInfo.collectAsState()
     var refreshKey by remember { mutableIntStateOf(0) }
     var lastCheckedTime by remember { mutableStateOf<LocalTime?>(null) }
     var firestoreOnline by remember { mutableStateOf<Boolean?>(null) }
@@ -81,10 +86,82 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    s.maintenanceAppVersion,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                )
+                IconButton(onClick = { vm.refreshUpdateCheck() }) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = s.maintenanceRefreshContentDescription
+                    )
+                }
+            }
+            Text(
+                "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace
+            )
+
+            val updateDotColor = when (updateInfo) {
+                is UpdateCheckResult.Available -> Color(0xFFFFA726)
+                is UpdateCheckResult.UpToDate -> Color(0xFF4CAF50)
+                is UpdateCheckResult.Failed -> MaterialTheme.colorScheme.error
+                UpdateCheckResult.Pending -> MaterialTheme.colorScheme.outline
+            }
+            val updateStatusText = when (val u = updateInfo) {
+                is UpdateCheckResult.Available -> "${s.updateAvailable}: v${u.info.latestVersion}"
+                is UpdateCheckResult.UpToDate -> s.updateUpToDate
+                is UpdateCheckResult.Failed -> s.updateCheckFailed
+                UpdateCheckResult.Pending -> s.updateChecking
+            }
+            val updateCheckedAt = when (val u = updateInfo) {
+                is UpdateCheckResult.Available -> u.checkedAt
+                is UpdateCheckResult.UpToDate -> u.checkedAt
+                is UpdateCheckResult.Failed -> u.checkedAt
+                UpdateCheckResult.Pending -> null
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 6.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .background(updateDotColor, CircleShape)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    updateStatusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            if (updateCheckedAt != null) {
+                val localTime = updateCheckedAt.atZone(ZoneId.systemDefault()).toLocalTime()
+                Text(
+                    s.maintenanceLastChecked(localTime.format(timeFormatter)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 2.dp, start = 16.dp)
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
             Text(
                 s.maintenanceFirebaseUid,
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 vm.myUid ?: "—",
@@ -132,7 +209,6 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 Text(statusText, style = MaterialTheme.typography.bodyLarge)
             }
 
-            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
             if (lastCheckedTime != null) {
                 Text(
                     s.maintenanceLastChecked(

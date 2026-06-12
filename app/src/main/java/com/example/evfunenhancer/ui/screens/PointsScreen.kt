@@ -83,8 +83,6 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
     // sortedMembers: list of (uid, displayName) sorted by display name
     val sortedMembers = remember(members) { members.entries.sortedBy { it.value }.map { it.key to it.value } }
     val scrollState = rememberScrollState()
-    // totals keyed by UID
-    val totals = remember(sortedMembers, votes) { sortedMembers.associate { (uid, _) -> uid to votes.values.sumOf { it[uid] ?: 0 } } }
     // guessLookup: uid → (participantOrder → rank)
     val guessLookup = remember(guesses) { guesses.mapValues { (_, rankToOrder) ->
         rankToOrder.entries.associate { (rank, order) -> order to rank }
@@ -137,10 +135,6 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
                         flashEnabled = votesInitiallyLoaded
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                }
-                item(key = "footer") {
-                    HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outline)
-                    FooterRow(sortedMembers, totals, myUid, scrollState)
                 }
             }
         }
@@ -294,47 +288,6 @@ private fun HeaderCell(width: Dp, text: String, bold: Boolean = false, highlight
             color = if (highlight) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-}
-
-@Composable
-private fun FooterRow(
-    sortedMembers: List<Pair<String, String>>,
-    totals: Map<String, Int>,
-    activeUid: String?,
-    scrollState: ScrollState
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(start = 4.dp)
-    ) {
-        val s = LocalAppStrings.current
-        Box(
-            Modifier
-                .width(RANK_COL + FLAG_COL)
-                .padding(horizontal = 4.dp, vertical = 12.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                s.totalPtsFooter,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-        }
-        Row(Modifier.horizontalScroll(scrollState)) {
-            sortedMembers.forEach { (uid, _) ->
-                DataCell(
-                    width = SCORE_COL,
-                    text = (totals[uid] ?: 0).toString(),
-                    highlight = uid == activeUid,
-                    bold = true
-                )
-            }
-        }
     }
 }
 

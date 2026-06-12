@@ -35,8 +35,6 @@ interface AppStrings {
     // Summary screen
     val countryHeader: String
     val totalPointsHeader: String
-    val totalPtsFooter: String
-
     // Number picker dialog
     val winnerGuess: String
 
@@ -53,12 +51,17 @@ interface AppStrings {
     val maintenanceStatusOffline: String
     fun maintenanceLastChecked(time: String): String
     val maintenanceRefreshContentDescription: String
+    val maintenanceAppVersion: String
 
     // Disclaimer
     val disclaimerLabel: String
     val disclaimerTitle: String
     val disclaimerBody: String
     val disclaimerButton: String
+    val updateAvailable: String
+    val updateUpToDate: String
+    val updateCheckFailed: String
+    val updateChecking: String
 
     // AfterShow screen
     val aftershowSavedToPhotos: String

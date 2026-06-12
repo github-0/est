@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.evfunenhancer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.21"
+        versionCode = 7
+        versionName = "1.1"
     }
 
     signingConfigs {
@@ -48,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -69,6 +70,8 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

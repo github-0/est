@@ -34,8 +34,6 @@ object StringsFi : AppStrings {
 
     override val countryHeader = "Maa"
     override val totalPointsHeader = "Pisteet yhteensä"
-    override val totalPtsFooter = "Yhteensä"
-
     override val winnerGuess = "Voittaja?"
 
     override val cancel = "Peruuta"
@@ -49,6 +47,7 @@ object StringsFi : AppStrings {
     override val maintenanceStatusOffline = "Offline"
     override fun maintenanceLastChecked(time: String) = "Tarkistettu $time"
     override val maintenanceRefreshContentDescription = "Päivitä"
+    override val maintenanceAppVersion = "Sovelluksen versio"
 
     override val disclaimerLabel = "Tärkeää tietoa"
     override val disclaimerTitle = "Ennen kuin jatkat"
@@ -78,6 +77,10 @@ object StringsFi : AppStrings {
     override val aftershowNotAvailableTitle = "Aftershow ei ole vielä saatavilla"
     override val aftershowNotAvailableBody = "Finaalin tuloksia ei ole vielä ladattu — palaa myöhemmin!"
     override val aftershowNoVotes = "Ei äänestyksiä vielä."
+    override val updateAvailable: String = "Päivitys saatavilla"
+    override val updateUpToDate: String = "Ajan tasalla"
+    override val updateCheckFailed: String = "Tarkistus epäonnistui"
+    override val updateChecking: String = "Tarkistetaan päivityksiä…"
 }
 
 // Keys match the exact English country name strings stored in Firestore.

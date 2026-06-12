@@ -3,10 +3,13 @@ package com.example.evfunenhancer.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.evfunenhancer.BuildConfig
 import com.example.evfunenhancer.data.FirestoreRepository
 import com.example.evfunenhancer.data.Participant
 import com.example.evfunenhancer.data.PrefsStore
 import com.example.evfunenhancer.data.ShowResults
+import com.example.evfunenhancer.data.UpdateCheckResult
+import com.example.evfunenhancer.data.checkForUpdate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -95,6 +98,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { ready -> if (ready) repository.watchResults("final") else flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _updateInfo = MutableStateFlow<UpdateCheckResult>(UpdateCheckResult.Pending)
+    val updateInfo: StateFlow<UpdateCheckResult> = _updateInfo.asStateFlow()
+
     init {
         // Watch for the auth user being dropped mid-session (e.g. deleted from Firebase console).
         // _authReady guards against triggering recovery before the initial sign-in completes.
@@ -141,6 +147,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _startupComplete.value = true
             }
         }
+
+        viewModelScope.launch { _updateInfo.value = checkForUpdate(BuildConfig.VERSION_NAME) }
+    }
+
+    fun refreshUpdateCheck() {
+        _updateInfo.value = UpdateCheckResult.Pending
+        viewModelScope.launch { _updateInfo.value = checkForUpdate(BuildConfig.VERSION_NAME) }
     }
 
     suspend fun createRoom(username: String): Result<String> {

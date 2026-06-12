@@ -34,8 +34,6 @@ object StringsEn : AppStrings {
 
     override val countryHeader = "Country"
     override val totalPointsHeader = "Total points"
-    override val totalPtsFooter = "Total pts"
-
     override val winnerGuess = "Winner?"
 
     override val cancel = "Cancel"
@@ -49,6 +47,7 @@ object StringsEn : AppStrings {
     override val maintenanceStatusOffline = "Offline"
     override fun maintenanceLastChecked(time: String) = "Last checked $time"
     override val maintenanceRefreshContentDescription = "Refresh"
+    override val maintenanceAppVersion = "App version"
 
     override val disclaimerLabel = "Disclaimer"
     override val disclaimerTitle = "Before you continue"
@@ -78,4 +77,8 @@ object StringsEn : AppStrings {
     override val aftershowNotAvailableTitle = "Aftershow not yet available"
     override val aftershowNotAvailableBody = "Final results have not yet been uploaded — check back later!"
     override val aftershowNoVotes = "No votes have been cast yet."
+    override val updateAvailable: String = "Update available"
+    override val updateUpToDate: String = "Up to date"
+    override val updateCheckFailed: String = "Check failed"
+    override val updateChecking: String = "Checking for updates…"
 }
