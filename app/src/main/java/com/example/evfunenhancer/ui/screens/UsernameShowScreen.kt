@@ -955,7 +955,9 @@ fun UsernameShowScreen(
                                 OutlinedTextField(
                                     value = roomCodeValue,
                                     onValueChange = { value ->
-                                        roomCodeValue = value.copy(text = value.text.uppercase().take(6))
+                                        val capped = value.text.uppercase().take(6)
+                                        if (capped.length == 6 && capped.length > roomCodeValue.text.length) keyboardController?.hide()
+                                        roomCodeValue = value.copy(text = capped)
                                         errorText = null
                                         usernameFieldError = false
                                         roomCodeFieldError = false

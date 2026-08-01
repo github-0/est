@@ -28,12 +28,12 @@ Get the latest APK from [Releases](../../releases).
 
 The app needs Eurovision participant data uploaded to Firestore before a show is selectable. 
 
-Place your Firebase service account key to `Maintenance tools/service_account.json`.
+Place your Firebase service account key to `maintenance tools/service_account.json`.
 
-Add participant data to `Maintenance tools/participants.json`, then run:
+Add participant data to `maintenance tools/participants.json`, then run:
 
 ```bash
-python3 "Maintenance tools/admin.py"
+python3 "maintenance tools/admin.py"
 ```
 
 

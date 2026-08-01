@@ -275,7 +275,8 @@ def delete_member(token, room_code, uid, username):
     delete_doc(token, f"{base}/members/{uid}")
     print(f"  Deleted member document ({uid})")
 
-    delete_doc(token, f"{base}/usernames/{username.lower()}")
+    encoded = urllib.parse.quote(username.lower(), safe="")
+    delete_doc(token, f"{base}/usernames/{encoded}")
     print(f"  Deleted username lock '{username.lower()}'")
 
     for show_doc in list_collection(token, f"{base}/votes"):
@@ -562,9 +563,6 @@ def do_upload_results(token):
     year    = data["year"]
     entries = data["entries"]
 
-    status = patch(token, "results/final", {"year": year})
-    print(f"  results/final (year={year}): HTTP {status}")
-
     for entry in entries:
         order  = entry["order"]
         status = patch(token, f"results/final/entries/{order}", {
@@ -573,6 +571,11 @@ def do_upload_results(token):
             "publicScore": entry["publicScore"],
         })
         print(f"  entry {order:2d}: rank={entry['rank']:2d}  jury={entry['juryScore']:4d}  public={entry['publicScore']:4d}  [HTTP {status}]")
+
+    # Write the parent document last so the app's Firestore listener only fires
+    # once all entries are already in the database.
+    status = patch(token, "results/final", {"year": year})
+    print(f"  results/final (year={year}): HTTP {status}")
 
     print("Done.")
 
@@ -672,13 +675,13 @@ def do_rename_results_final(token):
 
     for entry_doc in entries:
         order = entry_doc["name"].rsplit("/", 1)[-1]
-        print(f"  Writing results/final_test/entries/{order}...", end=" ", flush=True)
+        print(f"Writing results/final_test/entries/{order}...", end=" ", flush=True)
         status = patch_raw(token, f"results/final_test/entries/{order}", entry_doc.get("fields", {}))
         print(f"HTTP {status}")
 
     for entry_doc in entries:
         order = entry_doc["name"].rsplit("/", 1)[-1]
-        print(f"  Deleting results/final/entries/{order}...", end=" ", flush=True)
+        print(f"Deleting results/final/entries/{order}...", end=" ", flush=True)
         status = delete_doc(token, f"results/final/entries/{order}")
         print(f"HTTP {status}")
 
@@ -701,19 +704,20 @@ def do_restore_results_final_test(token):
     entries = list(list_collection(token, "results/final_test/entries"))
     print(f"OK ({len(entries)} entr{'y' if len(entries) == 1 else 'ies'})")
 
+    for entry_doc in entries:
+        order = entry_doc["name"].rsplit("/", 1)[-1]
+        print(f"Writing results/final/entries/{order}...", end=" ", flush=True)
+        status = patch_raw(token, f"results/final/entries/{order}", entry_doc.get("fields", {}))
+        print(f"HTTP {status}")
+
+    # Write parent document last so the app's snapshot listener only fires once entries exist.
     print("Writing results/final...", end=" ", flush=True)
     status = patch_raw(token, "results/final", parent_fields)
     print(f"HTTP {status}")
 
     for entry_doc in entries:
         order = entry_doc["name"].rsplit("/", 1)[-1]
-        print(f"  Writing results/final/entries/{order}...", end=" ", flush=True)
-        status = patch_raw(token, f"results/final/entries/{order}", entry_doc.get("fields", {}))
-        print(f"HTTP {status}")
-
-    for entry_doc in entries:
-        order = entry_doc["name"].rsplit("/", 1)[-1]
-        print(f"  Deleting results/final_test/entries/{order}...", end=" ", flush=True)
+        print(f"Deleting results/final_test/entries/{order}...", end=" ", flush=True)
         status = delete_doc(token, f"results/final_test/entries/{order}")
         print(f"HTTP {status}")
 

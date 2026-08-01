@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -74,6 +75,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    val creatorUid: StateFlow<String?> = _roomCode
+        .flatMapLatest { code ->
+            if (code != null) repository.getCreatorUid(code) else flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isRoomCreator: StateFlow<Boolean> = combine(creatorUid, _authReady) { cuid, ready ->
+        ready && cuid != null && try { cuid == repository.getUid() } catch (_: Exception) { false }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val shows: StateFlow<Map<String, List<Participant>>> = _authReady
         .flatMapLatest { ready -> if (ready) repository.getShows() else flowOf(emptyMap()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -93,6 +104,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 else flowOf(emptyMap())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // Always watch final-show votes/guesses, regardless of selected show — used by AfterShowScreen.
+    // Eagerly so the Firestore listener starts as soon as a room is joined, avoiding a race where
+    // results arrive before the first vote snapshot when the user first opens the Aftershow screen.
+    val finalVotes: StateFlow<Map<Int, Map<String, Int>>> = _roomCode
+        .flatMapLatest { code ->
+            if (code != null) repository.getVotes(code, "final") else flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val finalGuesses: StateFlow<Map<String, Map<Int, Int>>> = _roomCode
+        .flatMapLatest { code ->
+            if (code != null) repository.getGuesses(code, "final") else flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val results: StateFlow<ShowResults?> = _authReady
         .flatMapLatest { ready -> if (ready) repository.watchResults("final") else flowOf(null) }
@@ -119,7 +145,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            repository.signInAnonymously()
+            // signInAnonymously() needs a network call the very first time. If there is no
+            // internet on first launch, it throws — retry until it succeeds. Set startupComplete
+            // on the first failure so the UI renders in offline mode instead of hanging.
+            while (true) {
+                try {
+                    repository.signInAnonymously()
+                    break
+                } catch (_: Exception) {
+                    if (!_startupComplete.value) _startupComplete.value = true
+                    delay(5_000L)
+                }
+            }
             _authReady.value = true
 
             val savedRoomCode = prefs.getRoomCode()
@@ -145,6 +182,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } else {
                 _startupComplete.value = true
+            }
+        }
+
+        // Detect external removal. When a member is removed by an admin, Firestore security rules
+        // deny access so the snapshot listener fires with a null snapshot → emptyMap(). We use
+        // seenSelfInRoom to avoid false-positives during the brief window between _roomCode being
+        // set and the first real snapshot arriving (where members is also empty).
+        viewModelScope.launch {
+            _startupComplete.first { it }
+            var seenSelfInRoom = false
+            members.collect { currentMembers ->
+                val code = _roomCode.value
+                if (code == null) { seenSelfInRoom = false; return@collect }
+                val uid = try { repository.getUid() } catch (_: Exception) { return@collect }
+                if (currentMembers.containsKey(uid)) {
+                    seenSelfInRoom = true
+                } else if (seenSelfInRoom) {
+                    seenSelfInRoom = false
+                    leaveRoom()
+                }
             }
         }
 
@@ -193,6 +250,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             prefs.setUsername(newUsername)
         }
         return result
+    }
+
+    suspend fun removeMember(uidToRemove: String): Result<Unit> {
+        val code = _roomCode.value ?: return Result.failure(Exception("Not in a room"))
+        val username = members.value[uidToRemove] ?: return Result.failure(Exception("Member not found"))
+        return repository.removeMember(code, uidToRemove, username)
     }
 
     fun leaveRoom() {

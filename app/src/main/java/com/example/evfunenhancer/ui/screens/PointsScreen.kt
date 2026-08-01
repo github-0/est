@@ -10,8 +10,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -23,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -30,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,11 +66,21 @@ private val RANK_COL = 28.dp
 private val FLAG_COL = 44.dp
 private val SCORE_COL = 52.dp
 
-private val GlowPurple = Color(0xFFA855F7)
-private val ActiveTextShadow = Shadow(color = GlowPurple, offset = Offset.Zero, blurRadius = 20f)
+private val UserHighlight = Color(0xFF9666ff)
 private val RankShadeColor = Color(0x99000000)
 
 private data class FlyingVote(val points: Int, val start: Offset, val target: Offset)
+
+// Pulls the active user's column out of the list so it can be rendered pinned,
+// outside the horizontally scrollable member columns.
+private fun splitOwnMember(
+    sortedMembers: List<Pair<String, String>>,
+    activeUid: String?
+): Pair<Pair<String, String>?, List<Pair<String, String>>> {
+    val own = sortedMembers.firstOrNull { it.first == activeUid }
+    val rest = if (own != null) sortedMembers.filter { it.first != activeUid } else sortedMembers
+    return own to rest
+}
 
 @Composable
 fun PointsScreen(vm: MainViewModel = viewModel()) {
@@ -81,7 +94,9 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
 
     val participants = shows[selectedShowId] ?: emptyList()
     // sortedMembers: list of (uid, displayName) sorted by display name
-    val sortedMembers = remember(members) { members.entries.sortedBy { it.value }.map { it.key to it.value } }
+    val sortedMembers = remember(members, myUid) {
+        members.entries.sortedWith(compareBy({ it.key != myUid }, { it.value })).map { it.key to it.value }
+    }
     val scrollState = rememberScrollState()
     // guessLookup: uid → (participantOrder → rank)
     val guessLookup = remember(guesses) { guesses.mapValues { (_, rankToOrder) ->
@@ -116,7 +131,7 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
     ) {
         Column(Modifier.fillMaxSize()) {
             HeaderRow(sortedMembers, myUid, scrollState)
-            HorizontalDivider()
+            HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
             LazyColumn(Modifier.weight(1f)) {
                 itemsIndexed(participants, key = { _, p -> p.order }) { index, participant ->
                     ParticipantRow(
@@ -182,24 +197,24 @@ private fun HeaderRow(
     activeUid: String?,
     scrollState: ScrollState
 ) {
-    val gradientEndX = with(LocalDensity.current) { (RANK_COL + FLAG_COL + SCORE_COL * 0.45f).toPx() }
-    val rankGradient = remember(gradientEndX) {
-        Brush.horizontalGradient(
-            colors = listOf(RankShadeColor, Color.Transparent),
-            startX = 0f,
-            endX = gradientEndX
-        )
-    }
+    val (own, rest) = splitOwnMember(sortedMembers, activeUid)
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .drawBehind { drawRect(brush = rankGradient) }
+            .height(IntrinsicSize.Min)
+            .background(Color(0xFF1A1833))
             .padding(start = 4.dp)
     ) {
         HeaderCell(RANK_COL + FLAG_COL, "#")
+        own?.let { (_, name) ->
+            HeaderCell(width = SCORE_COL, text = name.uppercase(), bold = true, highlight = true)
+            VerticalDivider(
+                modifier = Modifier.padding(vertical = 6.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
         Row(Modifier.horizontalScroll(scrollState)) {
-            sortedMembers.forEach { (uid, name) ->
+            rest.forEach { (uid, name) ->
                 HeaderCell(
                     width = SCORE_COL,
                     text = name.uppercase(),
@@ -236,9 +251,11 @@ private fun ParticipantRow(
         )
     }
     val rowBg = if (isEvenRow) MaterialTheme.colorScheme.background else Color(0xFF12102A)
+    val (own, rest) = splitOwnMember(sortedMembers, activeUid)
     Row(
         Modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .background(rowBg)
             .drawBehind { drawRect(brush = rankGradient) }
             .clickable(onClick = onClick)
@@ -246,26 +263,38 @@ private fun ParticipantRow(
     ) {
         DataCell(RANK_COL, "${participant.order}", alignEnd = true, bold = true)
         DataCell(FLAG_COL, countryFlag(participant.country))
-        Row(Modifier.horizontalScroll(scrollState)) {
-            sortedMembers.forEach { (uid, _) ->
+        own?.let { (uid, _) ->
+            key(uid) {
                 val score = votes[uid]
-                val isActive = uid == activeUid
                 val medalRank = guessLookup[uid]?.get(participant.order)
-                if (isActive && trackPosition) {
-                    Box(Modifier.onGloballyPositioned { coords ->
-                        val posInWindow = coords.positionInWindow()
-                        view.getLocationOnScreen(windowPos)
-                        onActiveCellPositioned(
-                            Offset(
-                                posInWindow.x + windowPos[0] + coords.size.width / 2f,
-                                posInWindow.y + windowPos[1] + coords.size.height / 2f
+                Box(
+                    if (trackPosition) {
+                        Modifier.onGloballyPositioned { coords ->
+                            val posInWindow = coords.positionInWindow()
+                            view.getLocationOnScreen(windowPos)
+                            onActiveCellPositioned(
+                                Offset(
+                                    posInWindow.x + windowPos[0] + coords.size.width / 2f,
+                                    posInWindow.y + windowPos[1] + coords.size.height / 2f
+                                )
                             )
-                        )
-                    }) {
-                        ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = true, medalRank = medalRank)
-                    }
-                } else {
-                    ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = isActive, medalRank = medalRank, flashOnChange = if (isActive) false else flashEnabled)
+                        }
+                    } else Modifier
+                ) {
+                    ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = true, medalRank = medalRank, flashOnChange = false)
+                }
+            }
+            VerticalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            )
+        }
+        Row(Modifier.horizontalScroll(scrollState)) {
+            rest.forEach { (uid, _) ->
+                key(uid) {
+                    val score = votes[uid]
+                    val medalRank = guessLookup[uid]?.get(participant.order)
+                    ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = false, medalRank = medalRank, flashOnChange = flashEnabled)
                 }
             }
         }
@@ -282,10 +311,11 @@ private fun HeaderCell(width: Dp, text: String, bold: Boolean = false, highlight
     ) {
         Text(
             text,
-            style = if (highlight) MaterialTheme.typography.bodyMedium.copy(shadow = ActiveTextShadow)
-                    else MaterialTheme.typography.bodyMedium,
+            style = if (highlight) MaterialTheme.typography.bodyMedium.copy(
+                shadow = Shadow(color = UserHighlight, offset = Offset.Zero, blurRadius = 20f)
+            ) else MaterialTheme.typography.bodyMedium,
             fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-            color = if (highlight) MaterialTheme.colorScheme.primary
+            color = if (highlight) UserHighlight
                     else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -312,7 +342,7 @@ private fun DataCell(width: Dp, text: String, highlight: Boolean = false, alignE
                 highlight -> FontWeight.Bold
                 else -> FontWeight.Normal
             },
-            color = if (highlight) MaterialTheme.colorScheme.primary
+            color = if (highlight) UserHighlight
                     else MaterialTheme.colorScheme.onSurface
         )
     }
@@ -320,14 +350,12 @@ private fun DataCell(width: Dp, text: String, highlight: Boolean = false, alignE
 
 @Composable
 private fun ScoreCell(width: Dp, score: String, highlight: Boolean, medalRank: Int?, flashOnChange: Boolean = false) {
-    val ringColor = when (medalRank) {
+    val medalColor = when (medalRank) {
         1 -> Color(0xFFFFD700)
         2 -> Color(0xFFB0B8C0)
         3 -> Color(0xFFCD7F32)
         else -> null
     }
-    val density = LocalDensity.current
-    val medalStroke = remember(density) { Stroke(width = with(density) { 3.5.dp.toPx() }) }
 
     val flashAlpha = remember { Animatable(0f) }
     var knownScore by remember { mutableStateOf(score) }
@@ -336,7 +364,7 @@ private fun ScoreCell(width: Dp, score: String, highlight: Boolean, medalRank: I
         knownScore = score
         if (!shouldFlash) return@LaunchedEffect
         flashAlpha.snapTo(1f)
-        flashAlpha.animateTo(0f, tween(500))
+        flashAlpha.animateTo(0f, tween(1000))
     }
 
     Box(
@@ -345,20 +373,25 @@ private fun ScoreCell(width: Dp, score: String, highlight: Boolean, medalRank: I
             .padding(horizontal = 4.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
+        val isEmpty = score == "—"
         Text(
             score,
-            style = if (highlight) MaterialTheme.typography.bodyMedium.copy(shadow = ActiveTextShadow)
-                    else MaterialTheme.typography.bodyMedium,
-            fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
-            color = if (highlight) MaterialTheme.colorScheme.primary
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (highlight && !isEmpty) FontWeight.Bold else FontWeight.Normal,
+            color = if (isEmpty) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    else if (highlight) UserHighlight
                     else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.drawBehind {
                 val fa = flashAlpha.value
                 if (fa > 0f) {
-                    drawCircle(color = GlowPurple.copy(alpha = fa * 0.55f), radius = 17.dp.toPx())
+                    drawCircle(color = UserHighlight.copy(alpha = fa * 0.55f), radius = 17.dp.toPx())
                 }
-                if (ringColor != null) {
-                    drawCircle(color = ringColor, radius = 14.dp.toPx(), style = medalStroke)
+                if (medalColor != null) {
+                    drawCircle(
+                        color = medalColor,
+                        radius = 14.dp.toPx(),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.75.dp.toPx())
+                    )
                 }
             }
         )

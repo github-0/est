@@ -14,6 +14,34 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/rooms/$(roomCode)/members/$(request.auth.uid));
     }
 
+    // Username: 1–2 alphanumeric characters (A–Z, a–z, 0–9, Ä, Ö, Å and lowercase).
+    function isValidUsername(name) {
+      return name is string && name.matches('[A-Za-z0-9ÄÖÅäöå]{1,2}');
+    }
+
+    // Vote points: integer in [1, 12].
+    function isValidPoints(val) {
+      return val is int && val >= 1 && val <= 12;
+    }
+
+    // Guess rank value: a positive integer (participant order number).
+    // Ranks are optional — a picks doc may hold 1, 2, or 3 of them.
+    function isValidGuessDoc(data) {
+      return data.keys().hasOnly(['1', '2', '3'])
+        && (!('1' in data) || (data['1'] is int && data['1'] >= 1))
+        && (!('2' in data) || (data['2'] is int && data['2'] >= 1))
+        && (!('3' in data) || (data['3'] is int && data['3'] >= 1));
+    }
+
+    // Caller is the creator of the given room (stored as creatorUid on the room doc).
+    // Old rooms without creatorUid won't match — .get() returns the default null,
+    // which will never equal a real UID.
+    function isRoomCreator(roomCode) {
+      return isAuthenticated()
+        && get(/databases/$(database)/documents/rooms/$(roomCode)).data
+             .get('creatorUid', null) == request.auth.uid;
+    }
+
     // ------------------------------------------------------------------
     // Global: show participant lists
     // Read-only to clients; only writable via Admin SDK (maintenance scripts).
@@ -48,7 +76,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
 
       // Any authenticated user may create a room (host flow).
-      allow create: if isAuthenticated();
+      // creatorUid is optional so old clients still work; when present it must equal the caller.
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasOnly(['createdAt', 'lastActivityAt', 'creatorUid'])
+        && request.resource.data.get('creatorUid', request.auth.uid) == request.auth.uid;
 
       // Members may update lastActivityAt only (for cleanup age tracking).
       allow update: if isMember(roomCode)
@@ -74,9 +105,16 @@ service cloud.firestore {
         // A user may only create or update their own member document.
         // Uses isAuthenticated() (not isMember()) because the document does not
         // exist yet at the moment of creation — isMember() would always be false.
-        allow create: if isAuthenticated() && uid == request.auth.uid;
-        allow update: if isAuthenticated() && uid == request.auth.uid;
-        allow delete: if false;
+        allow create: if isAuthenticated() && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['username', 'joinedAt'])
+          && isValidUsername(request.resource.data.username);
+
+        allow update: if isAuthenticated() && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['username', 'joinedAt'])
+          && isValidUsername(request.resource.data.username);
+
+        // Room creator may delete any other member's document.
+        allow delete: if isRoomCreator(roomCode) && uid != request.auth.uid;
       }
 
 
@@ -87,9 +125,21 @@ service cloud.firestore {
         // Must be readable by non-members so the join transaction can check username
         // uniqueness before the caller's member document exists.
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
-        allow update: if isAuthenticated() && resource.data.uid == request.auth.uid;
-        allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+
+        // Doc key is the lowercased username — enforce the same 1–2 alphanumeric
+        // constraint here so arbitrary keys cannot be injected.
+        allow create: if isAuthenticated()
+          && username.matches('[a-z0-9äöå]{1,2}')
+          && request.resource.data.keys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid;
+
+        allow update: if isAuthenticated() && resource.data.uid == request.auth.uid
+          && username.matches('[a-z0-9äöå]{1,2}')
+          && request.resource.data.keys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid;
+
+        allow delete: if (isAuthenticated() && resource.data.uid == request.auth.uid)
+          || isRoomCreator(roomCode);
       }
 
 
@@ -101,16 +151,24 @@ service cloud.firestore {
 
         // First vote for this entry (document does not yet exist):
         // only allow if the document being created contains solely the
-        // caller's own UID as a field.
+        // caller's own UID as a field, with a valid point value.
         allow create: if isMember(roomCode)
-          && request.resource.data.keys().hasOnly([request.auth.uid]);
+          && request.resource.data.keys().hasOnly([request.auth.uid])
+          && isValidPoints(request.resource.data[request.auth.uid]);
 
         // Subsequent votes (document already exists with other users' fields):
-        // only allow if the diff between old and new state touches solely the
-        // caller's own UID field. This prevents overwriting anyone else's score.
+        // only allow if the diff touches solely the caller's own UID field,
+        // and the new value is a valid point score. This prevents overwriting
+        // anyone else's score and blocks out-of-range values.
         allow update: if isMember(roomCode)
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly([request.auth.uid]);
+               .hasOnly([request.auth.uid])
+          && isValidPoints(request.resource.data[request.auth.uid]);
+
+        // Room creator may remove (but not add or change) fields when purging a member.
+        allow update: if isRoomCreator(roomCode)
+          && request.resource.data.diff(resource.data).addedKeys().size() == 0
+          && request.resource.data.diff(resource.data).changedKeys().size() == 0;
 
         allow delete: if false;
       }
@@ -121,9 +179,18 @@ service cloud.firestore {
       // ----------------------------------------------------------------
       match /guesses/{showId}/picks/{uid} {
         allow read: if isMember(roomCode);
-        allow create: if isMember(roomCode) && uid == request.auth.uid;
-        allow update: if isMember(roomCode) && uid == request.auth.uid;
-        allow delete: if false;
+
+        // Guesses are written one rank at a time via merge(), so the doc
+        // may hold 0–3 entries at any point. isValidGuessDoc() allows any
+        // subset of ranks {1,2,3} and rejects out-of-range participant orders.
+        allow create: if isMember(roomCode) && uid == request.auth.uid
+          && isValidGuessDoc(request.resource.data);
+
+        allow update: if isMember(roomCode) && uid == request.auth.uid
+          && isValidGuessDoc(request.resource.data);
+
+        // Room creator may delete any member's guess doc when purging that member.
+        allow delete: if isRoomCreator(roomCode);
       }
     }
   }

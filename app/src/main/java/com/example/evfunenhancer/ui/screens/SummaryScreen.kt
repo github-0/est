@@ -152,7 +152,9 @@ private fun DiagonalStrip(
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = (-8).dp),
+                .offset(y = (-8).dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
@@ -165,8 +167,6 @@ private fun DiagonalStrip(
                 fontSize   = nameSize,
                 color      = onCard,
                 fontWeight = FontWeight.ExtraBold,
-                maxLines   = 1,
-                overflow   = TextOverflow.Ellipsis,
                 textAlign  = TextAlign.Center
             )
             Text(

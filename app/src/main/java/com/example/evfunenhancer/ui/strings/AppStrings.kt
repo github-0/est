@@ -40,6 +40,17 @@ interface AppStrings {
 
     // Dialog buttons
     val cancel: String
+    val remove: String
+
+    // Member removal (Maintenance screen)
+    val removeMembers: String
+    fun removeMembersNotCreator(creatorUsername: String): String
+    val removeMembersNoCreatorInfo: String
+    val removeMembersSelectTitle: String
+    fun removeMembersConfirmBody(username: String): String
+    val removeMembersConfirmWord: String
+    val removeMembersSuccess: String
+    val removeMembersFailed: String
 
     // Maintenance screen
     val maintenanceMode: String
@@ -52,6 +63,8 @@ interface AppStrings {
     fun maintenanceLastChecked(time: String): String
     val maintenanceRefreshContentDescription: String
     val maintenanceAppVersion: String
+    val maintenanceSectionStatus: String
+    val maintenanceSectionTools: String
 
     // Disclaimer
     val disclaimerLabel: String
@@ -69,7 +82,6 @@ interface AppStrings {
     val aftershowSave: String
     val aftershowGuessedWinners: String
     val aftershowNoGuesses: String
-    val aftershowScoringHint: String
     val aftershowSharedFeelings: String
     val aftershowGroupAgreement: String
     val aftershowMostGenerous: String
@@ -82,9 +94,14 @@ interface AppStrings {
     val aftershowBiggestSurprise: String
     fun aftershowPts(pts: Int): String
     fun aftershowCountryFallback(order: Int): String
-    val aftershowNotAvailableTitle: String
     val aftershowNotAvailableBody: String
     val aftershowNoVotes: String
+    val aftershowOfficial: String
+    val aftershowOfficialResults: String
+    val aftershowColJury: String
+    val aftershowColPublic: String
+    val aftershowColTotal: String
+    val aftershowComingSoon: String
 }
 
 val LocalAppStrings = staticCompositionLocalOf<AppStrings> { StringsEn }

@@ -68,37 +68,59 @@ class FirestoreRepository {
     }
 
     // Results are global read-only data; unchanged from original.
+    // Uses two live snapshot listeners (document + entries sub-collection) so that
+    // ShowResults is only emitted once both the year field AND entries are present.
+    // This prevents the race where the parent document lands before entries are written.
     fun watchResults(showId: String): Flow<ShowResults?> = callbackFlow {
-        val listener = db.collection("results").document(showId)
+        var cachedYear: Int? = null
+        // null = entries listener hasn't fired yet; emptyList = fired but no entries
+        var cachedEntries: List<CountryResult>? = null
+
+        fun tryEmit() {
+            val year = cachedYear
+            val entries = cachedEntries
+            if (year != null && !entries.isNullOrEmpty()) {
+                trySend(ShowResults(year, entries))
+            }
+            // null is sent explicitly from the doc listener when the document doesn't exist;
+            // no null emitted here to avoid a flash when listeners fire in entries-first order.
+        }
+
+        fun parseEntries(snapshot: com.google.firebase.firestore.QuerySnapshot) =
+            snapshot.documents.mapNotNull { doc ->
+                val order = doc.id.toIntOrNull() ?: return@mapNotNull null
+                CountryResult(
+                    order       = order,
+                    rank        = doc.getLong("rank")?.toInt()        ?: return@mapNotNull null,
+                    juryScore   = doc.getLong("juryScore")?.toInt()   ?: return@mapNotNull null,
+                    publicScore = doc.getLong("publicScore")?.toInt() ?: return@mapNotNull null,
+                )
+            }
+
+        val entriesListener = db.collection("results").document(showId)
+            .collection("entries")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot == null) return@addSnapshotListener
+                cachedEntries = parseEntries(snapshot)
+                tryEmit()
+            }
+
+        val docListener = db.collection("results").document(showId)
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null || !snapshot.exists()) {
+                    cachedYear = null
+                    cachedEntries = null
                     trySend(null)
                     return@addSnapshotListener
                 }
-                val year = snapshot.getLong("year")?.toInt() ?: run {
-                    trySend(null)
-                    return@addSnapshotListener
-                }
-                launch {
-                    try {
-                        val docs = db.collection("results").document(showId)
-                            .collection("entries").get().await()
-                        val entries = docs.documents.mapNotNull { doc ->
-                            val order = doc.id.toIntOrNull() ?: return@mapNotNull null
-                            CountryResult(
-                                order       = order,
-                                rank        = doc.getLong("rank")?.toInt()        ?: return@mapNotNull null,
-                                juryScore   = doc.getLong("juryScore")?.toInt()   ?: return@mapNotNull null,
-                                publicScore = doc.getLong("publicScore")?.toInt() ?: return@mapNotNull null,
-                            )
-                        }
-                        trySend(ShowResults(year, entries))
-                    } catch (_: Exception) {
-                        trySend(null)
-                    }
-                }
+                cachedYear = snapshot.getLong("year")?.toInt()
+                tryEmit()
             }
-        awaitClose { listener.remove() }
+
+        awaitClose {
+            docListener.remove()
+            entriesListener.remove()
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -122,7 +144,8 @@ class FirestoreRepository {
                     if (tx.get(roomRef).exists()) throw Exception("collision")
                     tx.set(roomRef, mapOf(
                         "createdAt" to Timestamp.now(),
-                        "lastActivityAt" to Timestamp.now()
+                        "lastActivityAt" to Timestamp.now(),
+                        "creatorUid" to uid
                     ))
                     tx.set(
                         roomRef.collection("members").document(uid),
@@ -196,6 +219,42 @@ class FirestoreRepository {
                 trySend(result)
             }
         awaitClose { listener.remove() }
+    }
+
+    fun getCreatorUid(roomCode: String): Flow<String?> = callbackFlow {
+        val listener = db.collection("rooms").document(roomCode)
+            .addSnapshotListener { snapshot, _ ->
+                trySend(snapshot?.getString("creatorUid"))
+            }
+        awaitClose { listener.remove() }
+    }
+
+    private val SHOW_IDS = listOf("sf1", "sf2", "final")
+
+    suspend fun removeMember(roomCode: String, uidToRemove: String, usernameToRemove: String): Result<Unit> = try {
+        val roomRef = db.collection("rooms").document(roomCode)
+        val batch = db.batch()
+
+        batch.delete(roomRef.collection("members").document(uidToRemove))
+        batch.delete(roomRef.collection("usernames").document(usernameToRemove.lowercase()))
+
+        for (showId in SHOW_IDS) {
+            val entries = roomRef.collection("votes").document(showId)
+                .collection("entries").get().await()
+            for (entryDoc in entries.documents) {
+                if (entryDoc.contains(uidToRemove))
+                    batch.update(entryDoc.reference, uidToRemove, FieldValue.delete())
+            }
+            batch.delete(
+                roomRef.collection("guesses").document(showId)
+                    .collection("picks").document(uidToRemove)
+            )
+        }
+
+        batch.commit().await()
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     suspend fun renameUser(roomCode: String, newUsername: String): Result<Unit> = try {

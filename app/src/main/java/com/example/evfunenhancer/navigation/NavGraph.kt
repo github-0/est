@@ -4,20 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Leaderboard
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,13 +17,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.evfunenhancer.ui.components.TicketGlyph
+import com.example.evfunenhancer.ui.components.TicketNavBar
+import com.example.evfunenhancer.ui.components.TicketNavItem
 import com.example.evfunenhancer.ui.screens.AfterShowScreen
 import com.example.evfunenhancer.ui.screens.MaintenanceScreen
 import com.example.evfunenhancer.ui.screens.PointsScreen
@@ -47,12 +39,27 @@ import com.example.evfunenhancer.ui.strings.StringsEn
 import com.example.evfunenhancer.ui.strings.StringsFi
 import com.example.evfunenhancer.viewmodel.MainViewModel
 
-private sealed class Screen(val route: String, val icon: ImageVector) {
-    object Profile : Screen("profile", Icons.Default.Person)
-    object Points : Screen("points", Icons.Default.TableChart)
-    object Summary : Screen("summary", Icons.Default.Leaderboard)
-    object Aftershow : Screen("aftershow", Icons.Default.AutoAwesome)
-    object Maintenance : Screen("maintenance", Icons.Default.Build)
+private sealed class Screen(val route: String, val glyph: TicketGlyph, val stubBrush: Brush) {
+    object Profile : Screen(
+        "profile", TicketGlyph.PROFILE,
+        Brush.linearGradient(listOf(Color(0xFFA855F7), Color(0xFF7C3AED)))
+    )
+    object Points : Screen(
+        "points", TicketGlyph.VOTES,
+        Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFFBE185D)))
+    )
+    object Summary : Screen(
+        "summary", TicketGlyph.SUMMARY,
+        Brush.linearGradient(listOf(Color(0xFFFFD700), Color(0xFFFF8C00)))
+    )
+    object Aftershow : Screen(
+        "aftershow", TicketGlyph.AFTERSHOW,
+        Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFFFFD700)))
+    )
+    object Maintenance : Screen(
+        "maintenance", TicketGlyph.PROFILE,
+        Brush.linearGradient(listOf(Color(0xFFA855F7), Color(0xFF7C3AED)))
+    )
 }
 
 private fun Screen.label(s: AppStrings): String = when (this) {
@@ -72,12 +79,9 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
     val roomCode by vm.roomCode.collectAsState()
     val selectedShow by vm.selectedShowId.collectAsState()
     val language by vm.language.collectAsState()
-    val results by vm.results.collectAsState()
     val isReady = username != null && selectedShow != null && roomCode != null
-    val isFinalSelected = selectedShow == "final" && roomCode != null
 
     val strings: AppStrings = if (language == "fi") StringsFi else StringsEn
-    var showNoResultsDialog by remember { mutableStateOf(false) }
     val disclaimerAccepted by vm.disclaimerAccepted.collectAsState()
     var showDisclaimerDialog by remember { mutableStateOf(false) }
 
@@ -95,91 +99,52 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
         )
     }
 
-    if (showNoResultsDialog) {
-        AlertDialog(
-            onDismissRequest = { showNoResultsDialog = false },
-            title = { Text(strings.aftershowNotAvailableTitle, style = MaterialTheme.typography.titleLarge) },
-            text = { Text(strings.aftershowNotAvailableBody) },
-            confirmButton = {
-                TextButton(onClick = { showNoResultsDialog = false }) { Text("OK") }
-            }
-        )
-    }
-
     CompositionLocalProvider(LocalAppStrings provides strings) {
         Scaffold(
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    val backStack by navController.currentBackStackEntryAsState()
-                    val currentRoute = backStack?.destination?.route
-                    val navItemColors = NavigationBarItemDefaults.colors(
-                        indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
-                        disabledIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                        disabledTextColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                    )
+                val backStack by navController.currentBackStackEntryAsState()
+                val currentRoute = backStack?.destination?.route
+                val results by vm.results.collectAsState()
+                val resultsUploaded = results != null
+
+                fun navigate(route: String) {
+                    navController.navigate(route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+
+                val items = buildList {
                     SCREENS.forEach { screen ->
-                        val enabled = screen == Screen.Profile || isReady
-                        val label = screen.label(strings)
-                        NavigationBarItem(
-                            colors = navItemColors,
-                            icon = { Icon(screen.icon, contentDescription = label) },
-                            label = { Text(label) },
-                            selected = currentRoute == screen.route,
-                            enabled = enabled,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
+                        add(
+                            TicketNavItem(
+                                key = screen.route,
+                                label = screen.label(strings),
+                                glyph = screen.glyph,
+                                stubBrush = screen.stubBrush,
+                                selected = currentRoute == screen.route,
+                                enabled = screen == Screen.Profile || isReady,
+                                onClick = { navigate(screen.route) },
+                            )
                         )
                     }
-                    val resultsReady = results != null
-                    val aftershowColors = if (!isFinalSelected || !resultsReady) {
-                        NavigationBarItemDefaults.colors(
-                            indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                            selectedIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                            selectedTextColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                            unselectedIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                            unselectedTextColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
+                    add(
+                        TicketNavItem(
+                            key = Screen.Aftershow.route,
+                            label = "Aftershow",
+                            glyph = Screen.Aftershow.glyph,
+                            stubBrush = Screen.Aftershow.stubBrush,
+                            selected = currentRoute == Screen.Aftershow.route,
+                            enabled = isReady,
+                            showHighlight = isReady && resultsUploaded,
+                            onClick = { navigate(Screen.Aftershow.route) },
                         )
-                    } else navItemColors
-                    NavigationBarItem(
-                        colors = aftershowColors,
-                        icon = {
-                            if (isFinalSelected && !resultsReady) {
-                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text("?") } }) {
-                                    Icon(Screen.Aftershow.icon, contentDescription = "Aftershow")
-                                }
-                            } else {
-                                Icon(Screen.Aftershow.icon, contentDescription = "Aftershow")
-                            }
-                        },
-                        label = { Text("Aftershow") },
-                        selected = currentRoute == Screen.Aftershow.route,
-                        enabled = isFinalSelected,
-                        onClick = {
-                            if (resultsReady) {
-                                navController.navigate(Screen.Aftershow.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            } else {
-                                showNoResultsDialog = true
-                            }
-                        }
                     )
                 }
+                TicketNavBar(items = items)
             }
         ) { padding ->
             NavHost(
