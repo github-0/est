@@ -10,6 +10,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -78,6 +79,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -288,19 +290,44 @@ private fun GradientSaveButton(
 }
 
 @Composable
-private fun SectionCard(content: @Composable () -> Unit) {
+private fun SectionCard(highlighted: Boolean = false, content: @Composable () -> Unit) {
     val cardSurface = MaterialTheme.colorScheme.surface
     val cardOutline = MaterialTheme.colorScheme.outline
+    val pulse = if (highlighted) {
+        val infiniteTransition = rememberInfiniteTransition(label = "sectionHighlight")
+        // Hold fully faded out for 2s, then flash 0 -> 1 -> 0 over 1s before repeating.
+        val t by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = keyframes {
+                    durationMillis = 3000
+                    0f at 0
+                    0f at 2000
+                    1f at 2500
+                    0f at 3000
+                },
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "sectionHighlightT"
+        )
+        t
+    } else 0f
+    val outlineBase = cardOutline.copy(alpha = 0.4f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (highlighted && pulse > 0.01f) Modifier.glow(AccentBlue, radius = 18.dp, cornerRadius = 16.dp, alpha = pulse * 0.8f)
+                else Modifier
+            )
             .drawBehind {
                 val cr = CornerRadius(16.dp.toPx())
                 drawRoundRect(color = cardSurface, cornerRadius = cr)
                 drawRoundRect(
-                    color = cardOutline.copy(alpha = 0.4f),
+                    color = if (highlighted) lerp(outlineBase, AccentBlue, pulse) else outlineBase,
                     cornerRadius = cr,
-                    style = Stroke(width = 1.dp.toPx())
+                    style = Stroke(width = if (highlighted) 1.5.dp.toPx() else 1.dp.toPx())
                 )
             }
     ) { content() }
@@ -563,17 +590,22 @@ fun UsernameShowScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        scope.launch {
-                            renameLoading = true
-                            val result = vm.renameUser(renameText.text.trim())
-                            renameLoading = false
-                            if (result.isSuccess) {
-                                showRenameDialog = false
-                            } else {
-                                val msg = result.exceptionOrNull()?.message ?: ""
-                                renameError = when {
-                                    msg.contains("already taken", ignoreCase = true) -> s.usernameAlreadyTaken
-                                    else -> msg.ifEmpty { s.usernameAlreadyTaken }
+                        val newName = renameText.text.trim()
+                        if (newName == currentUsername) {
+                            showRenameDialog = false
+                        } else {
+                            scope.launch {
+                                renameLoading = true
+                                val result = vm.renameUser(newName)
+                                renameLoading = false
+                                if (result.isSuccess) {
+                                    showRenameDialog = false
+                                } else {
+                                    val msg = result.exceptionOrNull()?.message ?: ""
+                                    renameError = when {
+                                        msg.contains("already taken", ignoreCase = true) -> s.usernameAlreadyTaken
+                                        else -> msg.ifEmpty { s.usernameAlreadyTaken }
+                                    }
                                 }
                             }
                         }
@@ -799,7 +831,7 @@ fun UsernameShowScreen(
                 }
 
                 // ── Select show ────────────────────────────────────────────
-                SectionCard {
+                SectionCard(highlighted = (currentShowId ?: lastShowId.value) == null) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             s.show.uppercase(),

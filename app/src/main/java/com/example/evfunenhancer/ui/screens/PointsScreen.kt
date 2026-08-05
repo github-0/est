@@ -25,7 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -208,10 +207,6 @@ private fun HeaderRow(
         HeaderCell(RANK_COL + FLAG_COL, "#")
         own?.let { (_, name) ->
             HeaderCell(width = SCORE_COL, text = name.uppercase(), bold = true, highlight = true)
-            VerticalDivider(
-                modifier = Modifier.padding(vertical = 6.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
         }
         Row(Modifier.horizontalScroll(scrollState)) {
             rest.forEach { (uid, name) ->
@@ -284,10 +279,6 @@ private fun ParticipantRow(
                     ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = true, medalRank = medalRank, flashOnChange = false)
                 }
             }
-            VerticalDivider(
-                modifier = Modifier.padding(vertical = 8.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
         }
         Row(Modifier.horizontalScroll(scrollState)) {
             rest.forEach { (uid, _) ->

@@ -29,27 +29,28 @@ object StringsFi : AppStrings {
     override val members = "Jäsenet"
 
     override val profileTab = "Asetukset"
-    override val pointsTab = "Pisteet"
+    override val pointsTab = "Äänestys"
     override val summaryTab = "Yhteenveto"
 
     override val countryHeader = "Maa"
-    override val totalPointsHeader = "Pisteet yhteensä"
+    override val medalsHeader = "Mitalit"
+    override val totalPointsHeader = "Pst"
     override val winnerGuess = "Voittaja?"
 
     override val cancel = "Peruuta"
     override val remove = "Poista"
 
-    override val removeMembers = "Poista jäseniä"
+    override val removeMembers = "Poista huoneen jäseniä"
     override fun removeMembersNotCreator(creatorUsername: String) =
         "Vain $creatorUsername voi poistaa jäseniä tästä huoneesta."
     override val removeMembersNoCreatorInfo =
-        "Vain huoneen luoja voi poistaa jäseniä. (Luoja ei tiedossa tässä huoneessa.)"
+        "Vain huoneen luoja voi poistaa jäseniä (luoja ei tiedossa tässä huoneessa)."
     override val removeMembersSelectTitle = "Valitse poistettava jäsen"
     override fun removeMembersConfirmBody(username: String) =
         "Kirjoita KYLLÄ poistaaksesi ${username}n kaikki tiedot pysyvästi."
     override val removeMembersConfirmWord = "KYLLÄ"
     override val removeMembersSuccess = "Jäsen poistettu."
-    override val removeMembersFailed = "Poistaminen epäonnistui. Yritä uudelleen."
+    override val removeMembersFailed = "Poistaminen epäonnistui."
 
     override val maintenanceMode = "Ylläpito"
     override val back = "Takaisin"
@@ -72,6 +73,7 @@ object StringsFi : AppStrings {
     override val disclaimerButton = "Ymmärsin"
 
     override val aftershowSavedToPhotos = "Tallennettu kuviin"
+    override val aftershowSaveShareFailed = "Kuvan tallennus tai jakaminen epäonnistui. Yritä uudelleen."
     override val aftershowShare = "JAA"
     override val aftershowSave = "TALLENNA"
     override val aftershowGuessedWinners = "KUKA ARVASI VOITTAJAT"

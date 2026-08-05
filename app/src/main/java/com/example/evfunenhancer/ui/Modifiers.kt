@@ -24,13 +24,14 @@ fun Modifier.glow(
     cornerRadius: Dp = 100.dp,
     alpha: Float = 0.8f,
     topInset: Dp = 0.dp,
+    style: BlurMaskFilter.Blur = BlurMaskFilter.Blur.OUTER,
 ): Modifier = this.drawBehind {
     drawIntoCanvas { canvas ->
         val paint = Paint()
         val fp = paint.asFrameworkPaint()
         fp.isAntiAlias = true
         fp.color = color.copy(alpha = alpha).toArgb()
-        fp.maskFilter = BlurMaskFilter(radius.toPx(), BlurMaskFilter.Blur.OUTER)
+        fp.maskFilter = BlurMaskFilter(radius.toPx(), style)
         val top = topInset.toPx()
         val r = cornerRadius.toPx().coerceAtMost((size.minDimension - top) / 2)
         canvas.drawRoundRect(0f, top, size.width, size.height, r, r, paint)

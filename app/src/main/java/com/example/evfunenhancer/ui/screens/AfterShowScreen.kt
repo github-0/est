@@ -418,16 +418,20 @@ fun AfterShowScreen(vm: MainViewModel) {
             LaunchedEffect(Unit) {
                 withFrameNanos {}
                 val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
-                when (captureAction) {
-                    CaptureAction.Share -> {
-                        val uri = withContext(Dispatchers.IO) { saveBitmapToCache(context, bitmap) }
-                        shareImage(context, uri)
+                try {
+                    when (captureAction) {
+                        CaptureAction.Share -> {
+                            val uri = withContext(Dispatchers.IO) { saveBitmapToCache(context, bitmap) }
+                            shareImage(context, uri)
+                        }
+                        CaptureAction.Save -> {
+                            saveToGallery(context, bitmap)
+                            Toast.makeText(context, s.aftershowSavedToPhotos, Toast.LENGTH_SHORT).show()
+                        }
+                        null -> {}
                     }
-                    CaptureAction.Save -> {
-                        saveToGallery(context, bitmap)
-                        Toast.makeText(context, s.aftershowSavedToPhotos, Toast.LENGTH_SHORT).show()
-                    }
-                    null -> {}
+                } catch (_: Exception) {
+                    Toast.makeText(context, s.aftershowSaveShareFailed, Toast.LENGTH_SHORT).show()
                 }
                 captureAction = null
             }

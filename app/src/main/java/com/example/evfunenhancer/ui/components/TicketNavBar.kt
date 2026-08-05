@@ -1,10 +1,19 @@
 package com.example.evfunenhancer.ui.components
 
+import android.graphics.BlurMaskFilter
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.evfunenhancer.ui.glow
+import kotlinx.coroutines.launch
 
 /** Icon glyphs for [TicketNavBar] tabs, hand-drawn to fit the ticket-stub concept. */
 enum class TicketGlyph { PROFILE, VOTES, SUMMARY, AFTERSHOW }
@@ -123,10 +134,16 @@ private fun PerforationStrip() {
 }
 
 private val StubInkColor = Color(0xFF1A0E2E)
+private val UnlockAccentColor = Color(0xFF6D63FC)
 
 @Composable
 private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
-    val dimColor = MaterialTheme.colorScheme.onBackground.copy(alpha = if (item.enabled) 0.5f else 0.25f)
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (item.enabled) 0.5f else 0.25f,
+        animationSpec = tween(400),
+        label = "dimAlpha",
+    )
+    val dimColor = MaterialTheme.colorScheme.onBackground.copy(alpha = dimAlpha)
     val baseColor = if (item.selected) StubInkColor else dimColor
 
     // Only pay for the infinite shimmer transition on the tab that actually needs it,
@@ -142,6 +159,26 @@ private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
         lerp(dimColor, Color(0xFFFFD700), shimmerT)
     } else baseColor
 
+    // Pop + glow flash the moment a tab unlocks from its grayed-out state, so becoming
+    // available reads as an event rather than just a silent color change.
+    var wasEnabled by remember { mutableStateOf(item.enabled) }
+    val unlockScale = remember { Animatable(1f) }
+    val unlockGlow = remember { Animatable(0f) }
+    LaunchedEffect(item.enabled) {
+        if (item.enabled && !wasEnabled) {
+            launch {
+                unlockScale.snapTo(1f)
+                unlockScale.animateTo(1.45f, tween(200, easing = FastOutSlowInEasing))
+                unlockScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+            }
+            launch {
+                unlockGlow.snapTo(1f)
+                unlockGlow.animateTo(0f, tween(900))
+            }
+        }
+        wasEnabled = item.enabled
+    }
+
     Box(
         modifier = modifier.clickable(
             enabled = item.enabled,
@@ -151,8 +188,26 @@ private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
         ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            TicketGlyphIcon(item.glyph, tint = contentColor, sizeDp = 22.dp)
+        Column(
+            modifier = Modifier.graphicsLayer {
+                scaleX = unlockScale.value
+                scaleY = unlockScale.value
+            },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = if (unlockGlow.value > 0.01f)
+                    Modifier.glow(
+                        UnlockAccentColor,
+                        radius = 12.dp,
+                        cornerRadius = 100.dp,
+                        alpha = unlockGlow.value * 0.6f,
+                        style = BlurMaskFilter.Blur.NORMAL,
+                    )
+                else Modifier
+            ) {
+                TicketGlyphIcon(item.glyph, tint = contentColor, sizeDp = 22.dp)
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = item.label.uppercase(),

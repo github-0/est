@@ -29,11 +29,12 @@ object StringsEn : AppStrings {
     override val members = "Room Members"
 
     override val profileTab = "Settings"
-    override val pointsTab = "Votes"
+    override val pointsTab = "Voting"
     override val summaryTab = "Summary"
 
     override val countryHeader = "Country"
-    override val totalPointsHeader = "Total points"
+    override val medalsHeader = "Medals"
+    override val totalPointsHeader = "Pts"
     override val winnerGuess = "Winner?"
 
     override val cancel = "Cancel"
@@ -43,13 +44,13 @@ object StringsEn : AppStrings {
     override fun removeMembersNotCreator(creatorUsername: String) =
         "Only $creatorUsername can remove members from this room."
     override val removeMembersNoCreatorInfo =
-        "Only the room creator can remove members. (Creator unknown for this room.)"
+        "Only the room creator can remove members (creator unknown for this room)."
     override val removeMembersSelectTitle = "Select member to remove"
     override fun removeMembersConfirmBody(username: String) =
         "Type YES to permanently remove $username and all their data."
     override val removeMembersConfirmWord = "YES"
     override val removeMembersSuccess = "Member removed."
-    override val removeMembersFailed = "Removal failed. Please try again."
+    override val removeMembersFailed = "Removal failed."
 
     override val maintenanceMode = "Maintenance Mode"
     override val back = "Back"
@@ -72,6 +73,7 @@ object StringsEn : AppStrings {
     override val disclaimerButton = "Understood"
 
     override val aftershowSavedToPhotos = "Saved to Photos"
+    override val aftershowSaveShareFailed = "Couldn't save or share the image. Please try again."
     override val aftershowShare = "SHARE"
     override val aftershowSave = "SAVE"
     override val aftershowGuessedWinners = "GUESSED THE WINNERS"

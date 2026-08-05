@@ -34,6 +34,7 @@ interface AppStrings {
 
     // Summary screen
     val countryHeader: String
+    val medalsHeader: String
     val totalPointsHeader: String
     // Number picker dialog
     val winnerGuess: String
@@ -78,6 +79,7 @@ interface AppStrings {
 
     // AfterShow screen
     val aftershowSavedToPhotos: String
+    val aftershowSaveShareFailed: String
     val aftershowShare: String
     val aftershowSave: String
     val aftershowGuessedWinners: String

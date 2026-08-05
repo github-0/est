@@ -278,27 +278,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun submitVote(order: Int, points: Int) {
         val showId = _selectedShowId.value ?: return
         val code = _roomCode.value ?: return
-        val uid = repository.getUid()
         viewModelScope.launch {
-            repository.submitVote(code, showId, order, uid, points)
+            try {
+                val uid = repository.getUid()
+                repository.submitVote(code, showId, order, uid, points)
+            } catch (_: Exception) { /* best-effort; e.g. auth not ready or write denied */ }
         }
     }
 
     fun submitGuess(participantOrder: Int, rank: Int?) {
         val showId = _selectedShowId.value ?: return
         val code = _roomCode.value ?: return
-        val uid = repository.getUid()
         viewModelScope.launch {
-            val existingRank = guesses.value[uid]
-                ?.entries?.find { it.value == participantOrder }?.key
-            if (rank == null) {
-                if (existingRank != null) repository.removeGuess(code, showId, uid, existingRank)
-            } else {
-                if (existingRank != null && existingRank != rank) {
-                    repository.removeGuess(code, showId, uid, existingRank)
+            try {
+                val uid = repository.getUid()
+                val existingRank = guesses.value[uid]
+                    ?.entries?.find { it.value == participantOrder }?.key
+                if (rank == null) {
+                    if (existingRank != null) repository.removeGuess(code, showId, uid, existingRank)
+                } else {
+                    if (existingRank != null && existingRank != rank) {
+                        repository.removeGuess(code, showId, uid, existingRank)
+                    }
+                    repository.setGuess(code, showId, uid, rank, participantOrder)
                 }
-                repository.setGuess(code, showId, uid, rank, participantOrder)
-            }
+            } catch (_: Exception) { /* best-effort; e.g. auth not ready or write denied */ }
         }
     }
 

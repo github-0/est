@@ -1,19 +1,24 @@
 package com.example.evfunenhancer.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,12 +27,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -38,6 +47,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +66,23 @@ import kotlinx.coroutines.delay
 private val StripGold   = Brush.verticalGradient(listOf(Color(0xFFFFD700), Color(0xFFE06800)))
 private val StripSilver = Brush.verticalGradient(listOf(Color(0xFFB8C0D0), Color(0xFF5A6270)))
 private val StripBronze = Brush.verticalGradient(listOf(Color(0xFFD49860), Color(0xFF7A4A20)))
+
+// Same highlight color used for the score flash on the Points screen.
+private val FlashHighlight = Color(0xFF9666ff)
+
+@Composable
+private fun rememberFlashAlpha(value: Int, enabled: Boolean): Animatable<Float, AnimationVector1D> {
+    val flashAlpha = remember { Animatable(0f) }
+    var known by remember { mutableStateOf(value) }
+    LaunchedEffect(value) {
+        val shouldFlash = enabled && value != known
+        known = value
+        if (!shouldFlash) return@LaunchedEffect
+        flashAlpha.snapTo(1f)
+        flashAlpha.animateTo(0f, tween(1000))
+    }
+    return flashAlpha
+}
 
 private fun parallelogramShape(offsetPx: Float, outerOffsetPx: Float, isFirst: Boolean, isLast: Boolean): Shape =
     object : Shape {
@@ -98,6 +125,7 @@ private fun DiagonalStrip(
     isWinner: Boolean,
     translateCountry: (String) -> String,
     shimmerProgress: Float,
+    flashEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val offsetPx      = with(LocalDensity.current) { offsetDp.toPx() }
@@ -109,6 +137,8 @@ private fun DiagonalStrip(
     val flagSize  = if (isWinner) 32.sp else 26.sp
     val nameSize  = if (isWinner) 9.sp  else 8.sp
     val scoreSize = if (isWinner) 28.sp else 22.sp
+    val flashRadius = if (isWinner) 34.dp else 28.dp
+    val flashAlpha = rememberFlashAlpha(entry.total, flashEnabled)
 
     Box(
         modifier = modifier
@@ -173,7 +203,13 @@ private fun DiagonalStrip(
                 text       = entry.total.toString(),
                 fontSize   = scoreSize,
                 color      = onCard,
-                fontWeight = FontWeight.ExtraBold
+                fontWeight = FontWeight.ExtraBold,
+                modifier   = Modifier.drawBehind {
+                    val fa = flashAlpha.value
+                    if (fa > 0f) {
+                        drawCircle(color = FlashHighlight.copy(alpha = fa * 0.6f), radius = flashRadius.toPx())
+                    }
+                }
             )
         }
         if (podiumMedals.isNotEmpty()) {
@@ -225,7 +261,8 @@ private fun medalString(medals: Map<Int, Int>, maxVisible: Int): String {
 @Composable
 private fun DiagonalPodiumSection(
     top3: List<SummaryEntry>,
-    translateCountry: (String) -> String
+    translateCountry: (String) -> String,
+    flashEnabled: Boolean
 ) {
     val shimmerAnimatables = remember { List(3) { Animatable(0f) } }
 
@@ -261,6 +298,7 @@ private fun DiagonalPodiumSection(
                 isWinner         = false,
                 translateCountry = translateCountry,
                 shimmerProgress  = shimmerAnimatables[0].value,
+                flashEnabled     = flashEnabled,
                 modifier         = Modifier.height(140.dp)
             )
             DiagonalStrip(
@@ -273,6 +311,7 @@ private fun DiagonalPodiumSection(
                 isWinner         = true,
                 translateCountry = translateCountry,
                 shimmerProgress  = shimmerAnimatables[1].value,
+                flashEnabled     = flashEnabled,
                 modifier         = Modifier.height(140.dp)
             )
             DiagonalStrip(
@@ -285,6 +324,7 @@ private fun DiagonalPodiumSection(
                 isWinner         = false,
                 translateCountry = translateCountry,
                 shimmerProgress  = shimmerAnimatables[2].value,
+                flashEnabled     = flashEnabled,
                 modifier         = Modifier.height(140.dp)
             )
         }
@@ -325,6 +365,13 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
     val guesses by vm.guesses.collectAsState()
     val medalCounts = remember(guesses) { buildMedalCounts(guesses) }
 
+    // True only after the first non-empty votes snapshot has been rendered, so the
+    // total-points flash is suppressed for the initial load (mirrors PointsScreen).
+    var totalsInitiallyLoaded by remember { mutableStateOf(false) }
+    SideEffect {
+        if (!totalsInitiallyLoaded && votes.isNotEmpty()) totalsInitiallyLoaded = true
+    }
+
     val participants = shows[selectedShowId] ?: emptyList()
 
     val ranked = participants
@@ -349,7 +396,8 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
             item(key = "podium") {
                 DiagonalPodiumSection(
                     top3 = ranked.take(3),
-                    translateCountry = s::translateCountry
+                    translateCountry = s::translateCountry,
+                    flashEnabled = totalsInitiallyLoaded
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -361,21 +409,34 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
                     Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Spacer(Modifier.width(28.dp))
                     Text(
                         s.countryHeader,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp)
+                    )
+                    Text(
+                        s.medalsHeader,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp)
                     )
                     Text(
                         s.totalPointsHeader,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.widthIn(min = 32.dp)
                     )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -386,9 +447,11 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
         itemsIndexed(listEntries, key = { _, e -> e.country }) { index, entry ->
             val displayRank = if (showPodium) index + 4 else index + 1
             val rankColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val flashAlpha = rememberFlashAlpha(entry.total, totalsInitiallyLoaded)
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .animateItem(placementSpec = spring(stiffness = Spring.StiffnessLow))
                     .padding(start = 4.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -419,11 +482,28 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
                         modifier = Modifier.padding(end = 8.dp)
                     )
                 }
+                var totalTextLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                 Text(
                     entry.total.toString(),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.End,
+                    onTextLayout = { totalTextLayout = it },
+                    modifier = Modifier
+                        .widthIn(min = 32.dp)
+                        .drawBehind {
+                            val fa = flashAlpha.value
+                            if (fa > 0f) {
+                                val tl = totalTextLayout
+                                val cx = if (tl != null) (tl.getLineLeft(0) + tl.getLineRight(0)) / 2f else size.width / 2f
+                                drawCircle(
+                                    color = FlashHighlight.copy(alpha = fa * 0.55f),
+                                    radius = 17.dp.toPx(),
+                                    center = Offset(cx, size.height / 2f)
+                                )
+                            }
+                        }
                 )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
