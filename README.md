@@ -13,34 +13,22 @@ Get the latest APK from [Releases](../../releases).
 
 ## Build from source
 
-### Prerequisites
-
-- Android Studio
-- A Firebase project with Firestore and Anonymous Auth enabled
-
-### Setup
+You need Android Studio and your own Firebase project with Firestore and Anonymous Auth enabled.
 
 1. Clone the repo
-2. Place your `google-services.json` to app/google-services.json
+2. Place your `google-services.json` in `app/` (see `app/google-services.json.template`)
 3. Build and install
 
-### Seeding participant data
+### Backend setup
 
-The app needs Eurovision participant data uploaded to Firestore before a show is selectable. 
+- Deploy the included security rules to Firebase
+- Shows and official results are uploaded to Firestore with `python3 "maintenance tools/admin.py"`, which needs your Firebase service account key in `maintenance tools/service_account.json` (see the `.template` next to it). A show can only be selected once its participants have been uploaded.
 
-Place your Firebase service account key to `maintenance tools/service_account.json`.
+### Before you ship your own build
 
-Add participant data to `maintenance tools/participants.json`, then run:
-
-```bash
-python3 "maintenance tools/admin.py"
-```
+This code is written for the original app and its shared backend. Some things are specific to it and may need changing in your build. 
 
 
-### Firestore rules
+## License
 
-Deploy the included security rules to your Firebase project:
-
-```bash
-firebase deploy --only firestore:rules
-```
+[MIT](LICENSE). The project is published as-is and does not accept contributions or issues.

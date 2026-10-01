@@ -24,6 +24,14 @@ service cloud.firestore {
       return val is int && val >= 1 && val <= 12;
     }
 
+    // Comment text: 1-100 UTF-16 code units (matches the client's counter, which
+    // uses Kotlin String.length — the same unit as Firestore's string size()), and
+    // no raw newlines/carriage returns (comments always render as a single line).
+    function isValidComment(val) {
+      return val is string && val.size() >= 1 && val.size() <= 100
+        && !val.matches('(?s).*[\\n\\r].*');
+    }
+
     // Guess rank value: a positive integer (participant order number).
     // Ranks are optional — a picks doc may hold 1, 2, or 3 of them.
     function isValidGuessDoc(data) {
@@ -164,6 +172,36 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly([request.auth.uid])
           && isValidPoints(request.resource.data[request.auth.uid]);
+
+        // Room creator may remove (but not add or change) fields when purging a member.
+        allow update: if isRoomCreator(roomCode)
+          && request.resource.data.diff(resource.data).addedKeys().size() == 0
+          && request.resource.data.diff(resource.data).changedKeys().size() == 0;
+
+        allow delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // Comments (room-scoped, keyed by UID; parallel to votes, all shows)
+      // ----------------------------------------------------------------
+      match /comments/{showId}/entries/{order} {
+        allow read: if isMember(roomCode);
+
+        // First comment for this entry (document does not yet exist):
+        // only allow if it contains solely the caller's own UID with valid text.
+        allow create: if isMember(roomCode)
+          && request.resource.data.keys().hasOnly([request.auth.uid])
+          && isValidComment(request.resource.data[request.auth.uid]);
+
+        // Subsequent writes: caller may add, edit, or delete (clear) solely their
+        // own UID field. Deleting the field removes the comment.
+        allow update: if isMember(roomCode)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid])
+          && (
+               !(request.auth.uid in request.resource.data)
+               || isValidComment(request.resource.data[request.auth.uid])
+             );
 
         // Room creator may remove (but not add or change) fields when purging a member.
         allow update: if isRoomCreator(roomCode)

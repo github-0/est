@@ -245,6 +245,12 @@ class FirestoreRepository {
                 if (entryDoc.contains(uidToRemove))
                     batch.update(entryDoc.reference, uidToRemove, FieldValue.delete())
             }
+            val commentEntries = roomRef.collection("comments").document(showId)
+                .collection("entries").get().await()
+            for (entryDoc in commentEntries.documents) {
+                if (entryDoc.contains(uidToRemove))
+                    batch.update(entryDoc.reference, uidToRemove, FieldValue.delete())
+            }
             batch.delete(
                 roomRef.collection("guesses").document(showId)
                     .collection("picks").document(uidToRemove)
@@ -327,19 +333,46 @@ class FirestoreRepository {
         awaitClose { listener.remove() }
     }
 
-    suspend fun setGuess(roomCode: String, showId: String, uid: String, rank: Int, participantOrder: Int) {
+    // Replaces the user's whole pick map in one write (no merge), so moving a country between
+    // ranks can never leave it in two ranks at once.
+    suspend fun setGuesses(roomCode: String, showId: String, uid: String, picks: Map<Int, Int>) {
         db.collection("rooms").document(roomCode)
             .collection("guesses").document(showId)
             .collection("picks").document(uid)
-            .set(mapOf(rank.toString() to participantOrder), SetOptions.merge())
+            .set(picks.mapKeys { (rank, _) -> rank.toString() })
             .await()
     }
 
-    suspend fun removeGuess(roomCode: String, showId: String, uid: String, rank: Int) {
-        db.collection("rooms").document(roomCode)
-            .collection("guesses").document(showId)
-            .collection("picks").document(uid)
-            .update(rank.toString(), FieldValue.delete())
-            .await()
+    // -------------------------------------------------------------------------
+    // Comments (room-scoped, keyed by UID; parallel to votes, all shows)
+    // -------------------------------------------------------------------------
+
+    fun getComments(roomCode: String, showId: String): Flow<Map<Int, Map<String, String>>> = callbackFlow {
+        val listener = db.collection("rooms").document(roomCode)
+            .collection("comments").document(showId).collection("entries")
+            .addSnapshotListener { snapshot, _ ->
+                val result = mutableMapOf<Int, Map<String, String>>()
+                snapshot?.documents?.forEach { doc ->
+                    val order = doc.id.toIntOrNull() ?: return@forEach
+                    result[order] = doc.data
+                        ?.filterValues { it is String }
+                        ?.mapValues { (_, v) -> v as String }
+                        ?: emptyMap()
+                }
+                trySend(result)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // An empty [text] deletes the caller's comment for this entry instead of storing it.
+    suspend fun submitComment(roomCode: String, showId: String, order: Int, uid: String, text: String) {
+        val ref = db.collection("rooms").document(roomCode)
+            .collection("comments").document(showId)
+            .collection("entries").document(order.toString())
+        if (text.isEmpty()) {
+            ref.update(uid, FieldValue.delete()).await()
+        } else {
+            ref.set(mapOf(uid to text), SetOptions.merge()).await()
+        }
     }
 }

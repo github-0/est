@@ -1,5 +1,13 @@
 package com.example.evfunenhancer.ui.screens
 
+import android.os.SystemClock
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material3.Icon
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.LinearEasing
@@ -9,14 +17,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +40,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,19 +54,24 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.evfunenhancer.ui.strings.LocalAppStrings
@@ -63,23 +80,63 @@ import com.example.evfunenhancer.viewmodel.MainViewModel
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 
-private val StripGold   = Brush.verticalGradient(listOf(Color(0xFFFFD700), Color(0xFFE06800)))
-private val StripSilver = Brush.verticalGradient(listOf(Color(0xFFB8C0D0), Color(0xFF5A6270)))
-private val StripBronze = Brush.verticalGradient(listOf(Color(0xFFD49860), Color(0xFF7A4A20)))
+// Metal tones per podium rank: highlight, base and shadow.
+private class Metal(val hi: Color, val mid: Color, val lo: Color) {
+    val text = Brush.verticalGradient(0.1f to hi, 0.55f to mid, 1f to lo)
+    val edge = Brush.horizontalGradient(listOf(lo, hi, lo))
+    val tint = Brush.verticalGradient(0f to mid.copy(alpha = 0.20f), 0.85f to mid.copy(alpha = 0.03f))
+    // Lighter half only, so the small dots keep their hue.
+    val dot  = Brush.verticalGradient(listOf(hi, mid))
+}
 
-// Same highlight color used for the score flash on the Points screen.
+// Gold is kept lemon-yellow and bronze reddish copper so the two don't blur together.
+private val MetalGold   = Metal(Color(0xFFFFF4A3), Color(0xFFFFD60A), Color(0xFFB8900A))
+private val MetalSilver = Metal(Color(0xFFF4F6FA), Color(0xFFB8C0D0), Color(0xFF646C7C))
+private val MetalBronze = Metal(Color(0xFFF0A27A), Color(0xFFC0673A), Color(0xFF6E3014))
+
+private const val PODIUM_HEIGHT_DP = 150
+private val PodiumMetals = listOf(MetalGold, MetalSilver, MetalBronze)
+
+// The guess medal dot for a podium rank (1–3), also used in the Points table.
+internal fun medalDotBrush(rank: Int): Brush = PodiumMetals[rank - 1].dot
+
+// Dark base under the strips' metal tint.
+private val StripBase = Color(0xFF120F26)
+
+// Same highlight color used for the score flash on the Points screen (rows 4+; the podium flashes in its metal colour).
 private val FlashHighlight = Color(0xFF9666ff)
 
+private const val FLASH_MS = 1000
+
+// Uptime at which each country's total last changed. Keyed by country rather than by
+// screen position, so when countries swap places only the one whose score changed flashes.
 @Composable
-private fun rememberFlashAlpha(value: Int, enabled: Boolean): Animatable<Float, AnimationVector1D> {
-    val flashAlpha = remember { Animatable(0f) }
-    var known by remember { mutableStateOf(value) }
-    LaunchedEffect(value) {
-        val shouldFlash = enabled && value != known
-        known = value
-        if (!shouldFlash) return@LaunchedEffect
-        flashAlpha.snapTo(1f)
-        flashAlpha.animateTo(0f, tween(1000))
+private fun rememberFlashStamps(totals: Map<String, Int>, enabled: Boolean, resetKey: Any?): Map<String, Long> {
+    val stamps = remember(resetKey) { mutableStateMapOf<String, Long>() }
+    val known = remember(resetKey) { mutableMapOf<String, Int>() }
+    LaunchedEffect(totals, resetKey) {
+        val now = SystemClock.uptimeMillis()
+        for ((country, total) in totals) {
+            val previous = known.put(country, total)
+            if (enabled && previous != null && previous != total) stamps[country] = now
+        }
+    }
+    return stamps
+}
+
+// Flash for whichever country is shown here; a country that just moved here picks up
+// its fade where it left off at its old position.
+@Composable
+private fun rememberFlashAlpha(country: String, stamp: Long?): Animatable<Float, AnimationVector1D> {
+    val flashAlpha = remember(country) { Animatable(0f) }
+    LaunchedEffect(country, stamp) {
+        val elapsed = if (stamp == null) FLASH_MS else (SystemClock.uptimeMillis() - stamp).toInt()
+        if (elapsed >= FLASH_MS) {
+            flashAlpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        flashAlpha.snapTo(1f - elapsed.toFloat() / FLASH_MS)
+        flashAlpha.animateTo(0f, tween(FLASH_MS - elapsed))
     }
     return flashAlpha
 }
@@ -114,18 +171,28 @@ private fun parallelogramShape(offsetPx: Float, outerOffsetPx: Float, isFirst: B
         }
     }
 
+private val RankLineHeight = 20.sp
+private val PodiumMoveSpec = spring<Float>(stiffness = Spring.StiffnessLow)
+
+// Places the element at x within the podium, at the given width and the podium's full height.
+private fun Modifier.podiumSlot(x: () -> Float, width: () -> Float) = layout { measurable, constraints ->
+    val w = width().roundToInt()
+    val placeable = measurable.measure(Constraints.fixed(w, constraints.maxHeight))
+    layout(w, constraints.maxHeight) { placeable.place(x().roundToInt(), 0) }
+}
+
+private fun lerp(start: Float, stop: Float, fraction: Float) = start + (stop - start) * fraction
+
+// The fixed part of a podium position: metal strip and rank number. The country shown on it
+// is drawn separately by PodiumEntry, so it can slide between positions.
 @Composable
 private fun DiagonalStrip(
-    entry: SummaryEntry,
-    gradient: Brush,
-    onCard: Color,
+    rank: Int,
+    metal: Metal,
     offsetDp: Dp,
     isFirst: Boolean,
     isLast: Boolean,
-    isWinner: Boolean,
-    translateCountry: (String) -> String,
     shimmerProgress: Float,
-    flashEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val offsetPx      = with(LocalDensity.current) { offsetDp.toPx() }
@@ -133,17 +200,12 @@ private fun DiagonalStrip(
     val shape = remember(offsetPx, isFirst, isLast) {
         parallelogramShape(offsetPx = offsetPx, outerOffsetPx = outerOffsetPx, isFirst = isFirst, isLast = isLast)
     }
-    val podiumMedals = medalString(entry.medals, PODIUM_MAX_MEDALS)
-    val flagSize  = if (isWinner) 32.sp else 26.sp
-    val nameSize  = if (isWinner) 9.sp  else 8.sp
-    val scoreSize = if (isWinner) 28.sp else 22.sp
-    val flashRadius = if (isWinner) 34.dp else 28.dp
-    val flashAlpha = rememberFlashAlpha(entry.total, flashEnabled)
 
     Box(
         modifier = modifier
             .clip(shape)
-            .background(brush = gradient)
+            .background(StripBase)
+            .background(brush = metal.tint)
             .drawWithContent {
                 drawContent()
                 if (shimmerProgress > 0f && shimmerProgress < 1f) {
@@ -162,7 +224,7 @@ private fun DiagonalStrip(
                         brush = Brush.linearGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color.White.copy(alpha = 0.4f),
+                                Color.White.copy(alpha = 0.28f),
                                 Color.Transparent
                             ),
                             start = Offset(cx - sw, size.height / 2f),
@@ -170,64 +232,166 @@ private fun DiagonalStrip(
                         )
                     )
                 }
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.32f)),
-                        center = Offset(size.width / 2f, size.height / 2f),
-                        radius = maxOf(size.width, size.height) * 0.7f
+                drawRect(brush = metal.edge, size = Size(size.width, 2.dp.toPx()))
+            },
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Text(
+            text       = "$rank",
+            style      = TextStyle(brush = metal.text),
+            fontSize   = 18.sp,
+            lineHeight = RankLineHeight,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign  = TextAlign.Center,
+            modifier   = Modifier.padding(top = 10.dp)
+        )
+    }
+}
+
+// A country on the podium. Keyed by country by the caller, so when the order changes it
+// slides from its old position to its new one and eases between the winner and runner-up sizes.
+@Composable
+private fun PodiumEntry(
+    entry: SummaryEntry,
+    rankIndex: Int,
+    slotX: Float,
+    slotWidth: Float,
+    animateEntrance: Boolean,
+    tied: Boolean,
+    translateCountry: (String) -> String,
+    flashStamp: Long?,
+    showMedals: Boolean
+) {
+    val x        = remember { Animatable(slotX) }
+    val width    = remember { Animatable(slotWidth) }
+    val winner   = remember { Animatable(if (rankIndex == 0) 1f else 0f) }
+    val entrance = remember { Animatable(if (animateEntrance) 0f else 1f) }
+    LaunchedEffect(slotX) { x.animateTo(slotX, PodiumMoveSpec) }
+    LaunchedEffect(slotWidth) { width.animateTo(slotWidth, PodiumMoveSpec) }
+    LaunchedEffect(rankIndex) { winner.animateTo(if (rankIndex == 0) 1f else 0f, PodiumMoveSpec) }
+    LaunchedEffect(Unit) { entrance.animateTo(1f, tween(450)) }
+
+    val w = winner.value
+    val flagSize    = lerp(24f, 30f, w).sp
+    val scoreSize   = lerp(22f, 28f, w).sp
+    val flashRadius = lerp(28f, 34f, w).dp
+    val flashColor  = PodiumMetals[rankIndex].mid
+    val flashAlpha  = rememberFlashAlpha(entry.country, flashStamp)
+    val rankLineDp  = with(LocalDensity.current) { RankLineHeight.toDp() }
+
+    Column(
+        modifier = Modifier
+            .podiumSlot(x = { x.value }, width = { width.value })
+            .graphicsLayer {
+                alpha = entrance.value
+                translationY = (1f - entrance.value) * 24.dp.toPx()
+            }
+            .padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Same height as the strip's rank number; a tie link icon sits just to its right.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(rankLineDp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(20.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                // Qualified so the outer Row/Column scope overloads aren't picked up.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = tied,
+                    enter   = fadeIn() + scaleIn(),
+                    exit    = fadeOut() + scaleOut()
+                ) {
+                    Icon(
+                        imageVector        = Icons.Rounded.Link,
+                        contentDescription = null,
+                        tint               = PodiumMetals[rankIndex].hi,
+                        modifier           = Modifier.size(16.dp)
                     )
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text       = countryFlag(entry.country),
+                    fontSize   = flagSize,
+                    lineHeight = 1.15.em
+                )
+                Text(
+                    text          = translateCountry(entry.country).uppercase(),
+                    fontSize      = 8.5.sp,
+                    letterSpacing = 0.16.em,
+                    color         = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight    = FontWeight.Bold,
+                    textAlign     = TextAlign.Center
+                )
+                Text(
+                    text       = entry.total.toString(),
+                    fontSize   = scoreSize,
+                    lineHeight = 1.05.em,
+                    color      = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    modifier   = Modifier.drawBehind {
+                        val fa = flashAlpha.value
+                        if (fa > 0f) {
+                            drawCircle(color = flashColor.copy(alpha = fa * 0.6f), radius = flashRadius.toPx())
+                        }
+                    }
                 )
             }
-    ) {
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = (-8).dp)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text(
-                text     = countryFlag(entry.country),
-                fontSize = flagSize
-            )
-            Text(
-                text       = translateCountry(entry.country).uppercase(),
-                fontSize   = nameSize,
-                color      = onCard,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign  = TextAlign.Center
-            )
-            Text(
-                text       = entry.total.toString(),
-                fontSize   = scoreSize,
-                color      = onCard,
-                fontWeight = FontWeight.ExtraBold,
-                modifier   = Modifier.drawBehind {
-                    val fa = flashAlpha.value
-                    if (fa > 0f) {
-                        drawCircle(color = FlashHighlight.copy(alpha = fa * 0.6f), radius = flashRadius.toPx())
-                    }
-                }
-            )
         }
-        if (podiumMedals.isNotEmpty()) {
-            Text(
-                text      = podiumMedals,
-                fontSize  = 11.sp,
-                color     = onCard,
-                textAlign = TextAlign.Center,
-                modifier  = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp)
-            )
+        Box(
+            modifier = Modifier.height(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (showMedals) MedalDots(entry.medals)
         }
     }
 }
 
-private const val LIST_MAX_MEDALS = 10
-private const val PODIUM_MAX_MEDALS = 3
+// Guess medals as a metal dot plus count per rank, e.g. ● 3 ● 1.
+@Composable
+private fun MedalDots(medals: Map<Int, Int>, modifier: Modifier = Modifier) {
+    if (medals.isEmpty()) return
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (rank in 1..3) {
+            val count = medals[rank] ?: continue
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(medalDotBrush(rank), CircleShape)
+                )
+                Text(
+                    text       = "$count",
+                    fontSize   = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style      = TextStyle(fontFeatureSettings = "tnum")
+                )
+            }
+        }
+    }
+}
 
 private data class SummaryEntry(
     val country: String,
@@ -245,24 +409,13 @@ private fun buildMedalCounts(guesses: Map<String, Map<Int, Int>>): Map<Int, Map<
     return result
 }
 
-private fun medalString(medals: Map<Int, Int>, maxVisible: Int): String {
-    if (medals.isEmpty()) return ""
-    val items = buildList {
-        for (rank in 1..3) {
-            val count = medals[rank] ?: continue
-            val emoji = when (rank) { 1 -> "🥇"; 2 -> "🥈"; else -> "🥉" }
-            repeat(count) { add(emoji) }
-        }
-    }
-    if (items.isEmpty()) return ""
-    return if (items.size <= maxVisible) items.joinToString("") else items.take(maxVisible).joinToString("") + "+"
-}
-
 @Composable
 private fun DiagonalPodiumSection(
     top3: List<SummaryEntry>,
     translateCountry: (String) -> String,
-    flashEnabled: Boolean
+    flashStamps: Map<String, Long>,
+    tiedTotals: Set<Int>,
+    showMedals: Boolean
 ) {
     val shimmerAnimatables = remember { List(3) { Animatable(0f) } }
 
@@ -278,79 +431,60 @@ private fun DiagonalPodiumSection(
         }
     }
 
-    val overlapDp = 12.dp
+    val overlapDp = 8.dp
     val offsetDp  = 16.dp
     val density   = LocalDensity.current
 
-    Layout(
+    // Countries already on the podium when it first appears don't play the entrance animation.
+    var settled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { settled = true }
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp)
-            .background(Color.Black),
-        content = {
-            DiagonalStrip(
-                entry            = top3[1],
-                gradient         = StripSilver,
-                onCard           = Color.White,
-                offsetDp         = offsetDp,
-                isFirst          = true,
-                isLast           = false,
-                isWinner         = false,
-                translateCountry = translateCountry,
-                shimmerProgress  = shimmerAnimatables[0].value,
-                flashEnabled     = flashEnabled,
-                modifier         = Modifier.height(140.dp)
-            )
-            DiagonalStrip(
-                entry            = top3[0],
-                gradient         = StripGold,
-                onCard           = MaterialTheme.colorScheme.onTertiary,
-                offsetDp         = offsetDp,
-                isFirst          = false,
-                isLast           = false,
-                isWinner         = true,
-                translateCountry = translateCountry,
-                shimmerProgress  = shimmerAnimatables[1].value,
-                flashEnabled     = flashEnabled,
-                modifier         = Modifier.height(140.dp)
-            )
-            DiagonalStrip(
-                entry            = top3[2],
-                gradient         = StripBronze,
-                onCard           = Color.White,
-                offsetDp         = offsetDp,
-                isFirst          = false,
-                isLast           = true,
-                isWinner         = false,
-                translateCountry = translateCountry,
-                shimmerProgress  = shimmerAnimatables[2].value,
-                flashEnabled     = flashEnabled,
-                modifier         = Modifier.height(140.dp)
-            )
-        }
-    ) { measurables, constraints ->
+            .height(PODIUM_HEIGHT_DP.dp)
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         val W         = constraints.maxWidth
-        val H         = constraints.maxHeight
         val overlapPx = with(density) { overlapDp.roundToPx() }
 
-        val w0 = W / 3
-        val w1 = W / 3
+        // Screen positions left to right hold ranks 2, 1, 3. The winner's strip is a little
+        // wider than the other two; inner strips overlap their left neighbour.
+        val w0 = (W / 3.12f).toInt()
+        val w1 = (W * 1.12f / 3.12f).toInt()
         val w2 = W - w0 - w1
+        val slotX     = listOf(0f, (w0 - overlapPx).toFloat(), (w0 + w1 - overlapPx).toFloat())
+        val slotWidth = listOf(w0.toFloat(), (w1 + overlapPx).toFloat(), (w2 + overlapPx).toFloat())
+        val rankToSlot = listOf(1, 0, 2)
 
-        val p0 = measurables[0].measure(
-            constraints.copy(minWidth = w0,             maxWidth = w0,             minHeight = H, maxHeight = H)
-        )
-        val p1 = measurables[1].measure(
-            constraints.copy(minWidth = w1 + overlapPx, maxWidth = w1 + overlapPx, minHeight = H, maxHeight = H)
-        )
-        val p2 = measurables[2].measure(
-            constraints.copy(minWidth = w2 + overlapPx, maxWidth = w2 + overlapPx, minHeight = H, maxHeight = H)
-        )
+        for (slot in 0..2) {
+            val rankIndex = rankToSlot.indexOf(slot)
+            DiagonalStrip(
+                rank            = rankIndex + 1,
+                metal           = PodiumMetals[rankIndex],
+                offsetDp        = offsetDp,
+                isFirst         = slot == 0,
+                isLast          = slot == 2,
+                shimmerProgress = shimmerAnimatables[slot].value,
+                modifier        = Modifier.podiumSlot(x = { slotX[slot] }, width = { slotWidth[slot] })
+            )
+        }
 
-        layout(W, H) {
-            p0.placeRelative(0,                   0)
-            p1.placeRelative(w0 - overlapPx,      0)
-            p2.placeRelative(w0 + w1 - overlapPx, 0)
+        top3.forEachIndexed { rankIndex, entry ->
+            key(entry.country) {
+                val slot = rankToSlot[rankIndex]
+                PodiumEntry(
+                    entry            = entry,
+                    rankIndex        = rankIndex,
+                    slotX            = slotX[slot],
+                    slotWidth        = slotWidth[slot],
+                    animateEntrance  = settled,
+                    tied             = entry.total in tiedTotals,
+                    translateCountry = translateCountry,
+                    flashStamp       = flashStamps[entry.country],
+                    showMedals       = showMedals
+                )
+            }
         }
     }
 }
@@ -372,6 +506,8 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
         if (!totalsInitiallyLoaded && votes.isNotEmpty()) totalsInitiallyLoaded = true
     }
 
+    val showMedals = selectedShowId == "final"
+
     val participants = shows[selectedShowId] ?: emptyList()
 
     val ranked = participants
@@ -380,6 +516,19 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
             SummaryEntry(p.country, total, medalCounts[p.order] ?: emptyMap())
         }
         .sortedWith(compareByDescending<SummaryEntry> { it.total }.thenBy { it.country })
+
+    val flashStamps = rememberFlashStamps(
+        totals   = ranked.associate { it.country to it.total },
+        enabled  = totalsInitiallyLoaded,
+        resetKey = selectedShowId
+    )
+
+    // Point totals shared by two or more countries (0 points doesn't count as a tie).
+    val tiedTotals = ranked
+        .groupingBy { it.total }
+        .eachCount()
+        .filter { (total, count) -> total > 0 && count > 1 }
+        .keys
 
     val showPodium = ranked.size >= 3
 
@@ -397,7 +546,9 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
                 DiagonalPodiumSection(
                     top3 = ranked.take(3),
                     translateCountry = s::translateCountry,
-                    flashEnabled = totalsInitiallyLoaded
+                    flashStamps = flashStamps,
+                    tiedTotals = tiedTotals,
+                    showMedals = showMedals
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -423,13 +574,15 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
                             .weight(1f)
                             .padding(horizontal = 12.dp)
                     )
-                    Text(
-                        s.medalsHeader,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
+                    if (showMedals) {
+                        Text(
+                            s.medalsHeader,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
                     Text(
                         s.totalPointsHeader,
                         style = MaterialTheme.typography.bodySmall,
@@ -447,7 +600,7 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
         itemsIndexed(listEntries, key = { _, e -> e.country }) { index, entry ->
             val displayRank = if (showPodium) index + 4 else index + 1
             val rankColor = MaterialTheme.colorScheme.onSurfaceVariant
-            val flashAlpha = rememberFlashAlpha(entry.total, totalsInitiallyLoaded)
+            val flashAlpha = rememberFlashAlpha(entry.country, flashStamps[entry.country])
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -474,14 +627,7 @@ fun SummaryScreen(vm: MainViewModel = viewModel()) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val medals = medalString(entry.medals, LIST_MAX_MEDALS)
-                if (medals.isNotEmpty()) {
-                    Text(
-                        medals,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
+                if (showMedals) MedalDots(entry.medals, Modifier.padding(end = 8.dp))
                 var totalTextLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
                 Text(
                     entry.total.toString(),

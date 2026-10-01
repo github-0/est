@@ -2,6 +2,7 @@ package com.example.evfunenhancer.ui.screens
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -11,12 +12,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -52,11 +57,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.evfunenhancer.data.Participant
+import com.example.evfunenhancer.ui.components.CommentEntryDialog
+import com.example.evfunenhancer.ui.components.CommentFeedPeekHeight
+import com.example.evfunenhancer.ui.components.CommentFeedSheet
+import com.example.evfunenhancer.ui.components.CommentFeedTab
+import com.example.evfunenhancer.ui.components.EntryComment
+import com.example.evfunenhancer.ui.components.FeedComment
+import com.example.evfunenhancer.ui.components.memberColors
 import com.example.evfunenhancer.ui.components.ConfettiOverlay
 import com.example.evfunenhancer.ui.components.NumberPickerDialog
 import com.example.evfunenhancer.ui.strings.LocalAppStrings
+import com.example.evfunenhancer.ui.glow
+import com.example.evfunenhancer.ui.theme.CommentAccent
 import com.example.evfunenhancer.utils.countryFlag
 import com.example.evfunenhancer.viewmodel.MainViewModel
 import kotlin.math.roundToInt
@@ -90,6 +106,9 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
     val activeUser by vm.username.collectAsState()
     val myUid = vm.myUid
     val guesses by vm.guesses.collectAsState()
+    val comments by vm.comments.collectAsState()
+    val commentSeenAt by vm.commentSeenAt.collectAsState()
+    val unreadComments by vm.unreadComments.collectAsState()
 
     val participants = shows[selectedShowId] ?: emptyList()
     // sortedMembers: list of (uid, displayName) sorted by display name
@@ -111,7 +130,39 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
 
     val s = LocalAppStrings.current
     var dialogParticipant by remember { mutableStateOf<Participant?>(null) }
+    // Other members' comments on the dialog's entry that were unread when it opened; the
+    // carousel shows these first. Captured on open because opening marks them read.
+    var dialogUnreadUids by remember { mutableStateOf(emptySet<String>()) }
+    var showCommentEntry by remember { mutableStateOf(false) }
+    var feedExpanded by remember { mutableStateOf(false) }
+    var feedTab by remember { mutableStateOf(CommentFeedTab.BY_COUNTRY) }
+    // Comments tagged NEW in the feed: whatever was unread when it opened, plus anything
+    // arriving while it stays open. Everything is marked read as soon as it's on screen.
+    var feedNewKeys by remember { mutableStateOf(emptySet<MainViewModel.CommentKey>()) }
+    val totalComments = comments.values.sumOf { it.size }
+    val unreadCountByOrder = remember(unreadComments) { unreadComments.groupingBy { it.order }.eachCount() }
+    val unreadOrders = unreadCountByOrder.keys
+    val colorByUid = remember(members, myUid) { memberColors(members.keys, myUid) }
     var showConfetti by remember { mutableStateOf(false) }
+
+    // Opening a vote dialog counts as reading that entry's comments. Ones arriving while it's
+    // open stay unread until it's opened again.
+    LaunchedEffect(dialogParticipant?.order) {
+        val order = dialogParticipant?.order ?: return@LaunchedEffect
+        if (order in unreadOrders) vm.markCommentsRead(order)
+    }
+    LaunchedEffect(feedExpanded, unreadComments) {
+        if (!feedExpanded) {
+            feedNewKeys = emptySet()
+        } else if (unreadComments.isNotEmpty()) {
+            feedNewKeys = feedNewKeys + unreadComments
+            vm.markAllCommentsRead()
+        }
+    }
+    // The handle disappears with the last comment, so don't leave the sheet open behind it.
+    LaunchedEffect(totalComments) {
+        if (totalComments == 0) feedExpanded = false
+    }
 
     val view = LocalView.current
     val cellPositions = remember { mutableStateMapOf<Int, Offset>() }
@@ -129,18 +180,34 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
             }
     ) {
         Column(Modifier.fillMaxSize()) {
+            PointsBanner(
+                title = s.votingOn,
+                showLabel = s.showTitle(selectedShowId ?: ""),
+                scored = participants.count { votes[it.order]?.containsKey(myUid) == true },
+                total = participants.size
+            )
             HeaderRow(sortedMembers, myUid, scrollState)
             HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            LazyColumn(Modifier.weight(1f)) {
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = if (totalComments > 0) CommentFeedPeekHeight else 0.dp)
+            ) {
                 itemsIndexed(participants, key = { _, p -> p.order }) { index, participant ->
                     ParticipantRow(
                         participant = participant,
                         sortedMembers = sortedMembers,
                         activeUid = myUid,
                         votes = votes[participant.order] ?: emptyMap(),
+                        unreadCommentCount = unreadCountByOrder[participant.order] ?: 0,
                         guessLookup = guessLookup,
                         scrollState = scrollState,
-                        onClick = { dialogParticipant = participant },
+                        onClick = {
+                            dialogUnreadUids = unreadComments
+                                .filter { it.order == participant.order }
+                                .map { it.uid }
+                                .toSet()
+                            dialogParticipant = participant
+                        },
                         onActiveCellPositioned = { offset ->
                             cellPositions[participant.order] = offset
                         },
@@ -151,6 +218,36 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
+        }
+        if (totalComments > 0) {
+            val feedComments = remember(comments, commentSeenAt, feedNewKeys, unreadComments, votes, members, colorByUid, participants, s) {
+                comments.flatMap { (order, byUid) ->
+                    val participant = participants.firstOrNull { it.order == order } ?: return@flatMap emptyList()
+                    byUid.map { (uid, text) ->
+                        val key = MainViewModel.CommentKey(order, uid)
+                        FeedComment(
+                            order = order,
+                            flag = countryFlag(participant.country),
+                            countryName = s.translateCountry(participant.country),
+                            uid = uid,
+                            username = members[uid] ?: "?",
+                            color = colorByUid[uid] ?: CommentAccent,
+                            points = votes[order]?.get(uid),
+                            text = text,
+                            seenAt = commentSeenAt[key],
+                            isNew = key in feedNewKeys || key in unreadComments
+                        )
+                    }
+                }
+            }
+            CommentFeedSheet(
+                comments = feedComments,
+                unreadCount = unreadComments.size,
+                expanded = feedExpanded,
+                onExpandedChange = { feedExpanded = it },
+                tab = feedTab,
+                onTabChange = { feedTab = it }
+            )
         }
         flyingVote?.let { fv ->
             FlyingVoteOverlay(
@@ -165,15 +262,30 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
         }
     }
 
-    dialogParticipant?.let { p ->
+    dialogParticipant?.let { p -> key(p.order) {
         val current = votes[p.order]?.get(myUid) ?: 0
+        val myComment = comments[p.order]?.get(myUid)
+        val otherComments = comments[p.order].orEmpty()
+            .filterKeys { it != myUid }
+            .map { (uid, text) ->
+                EntryComment(uid, members[uid] ?: "?", colorByUid[uid] ?: CommentAccent, votes[p.order]?.get(uid), text)
+            }
         NumberPickerDialog(
             flag = countryFlag(p.country),
             countryName = s.translateCountry(p.country),
+            artist = p.artist,
+            song = p.song,
             currentValue = current,
             showWinnerGuess = selectedShowId == "final",
             currentUserGuessRank = guessLookup[myUid]?.get(p.order),
+            guessFlags = guesses[myUid].orEmpty().mapNotNull { (rank, order) ->
+                participants.find { it.order == order }?.let { rank to countryFlag(it.country) }
+            }.toMap(),
             onGuessChanged = { rank -> vm.submitGuess(p.order, rank) },
+            commentText = myComment,
+            onCommentClick = { showCommentEntry = true },
+            otherComments = otherComments,
+            unreadCommentUids = dialogUnreadUids,
             onConfirm = { pts, chipScreenPos ->
                 vm.submitVote(p.order, pts)
                 val rawTarget = cellPositions[p.order]
@@ -185,7 +297,74 @@ fun PointsScreen(vm: MainViewModel = viewModel()) {
                 }
                 if (pts == 12) showConfetti = true
             },
-            onDismiss = { dialogParticipant = null }
+            onDismiss = {
+                dialogParticipant = null
+                showCommentEntry = false
+            }
+        )
+        if (showCommentEntry) {
+            CommentEntryDialog(
+                countryName = s.translateCountry(p.country),
+                initialText = myComment ?: "",
+                onConfirm = { text ->
+                    vm.submitComment(p.order, text)
+                    showCommentEntry = false
+                },
+                onDismiss = { showCommentEntry = false }
+            )
+        }
+    } }
+}
+
+// The app logo's "SCORE TRACKER" gradient (est_banner): cyan → blue → purple → pink.
+private val BrandGradientColors = listOf(Color(0xFF1FD8F2), Color(0xFF5A82F6), Color(0xFFA855F7), Color(0xFFEC4899))
+
+// Slim title strip in the style of the Aftershow lockup: "VOTING ON" in white spaced caps
+// followed by the show's name in gradient caps, and a thin gradient line along the bottom
+// showing how much of the show you've scored. Kept low so the table keeps its room.
+@Composable
+private fun PointsBanner(title: String, showLabel: String, scored: Int, total: Int) {
+    val progress by animateFloatAsState(
+        targetValue = if (total > 0) scored.toFloat() / total else 0f,
+        animationSpec = tween(500),
+        label = "bannerProgress"
+    )
+    val base = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF1E0A3E).copy(alpha = 0.5f), Color.Transparent))
+            )
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title.uppercase(),
+                style = base.copy(letterSpacing = 0.3.em),
+                color = Color.White
+            )
+            Text(
+                " " + showLabel.uppercase(),
+                style = base.copy(letterSpacing = 0.3.em, brush = Brush.horizontalGradient(BrandGradientColors))
+            )
+        }
+        // Progress line: full-width gradient, revealed up to the scored fraction.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .drawBehind {
+                    drawRect(Color.White.copy(alpha = 0.08f))
+                    drawRect(
+                        Brush.horizontalGradient(BrandGradientColors, endX = size.width),
+                        size = size.copy(width = size.width * progress)
+                    )
+                }
         )
     }
 }
@@ -227,6 +406,7 @@ private fun ParticipantRow(
     sortedMembers: List<Pair<String, String>>,
     activeUid: String?,
     votes: Map<String, Int>,
+    unreadCommentCount: Int,
     guessLookup: Map<String, Map<Int, Int>>,
     scrollState: ScrollState,
     onClick: () -> Unit,
@@ -254,10 +434,11 @@ private fun ParticipantRow(
             .background(rowBg)
             .drawBehind { drawRect(brush = rankGradient) }
             .clickable(onClick = onClick)
-            .padding(start = 4.dp)
+            .padding(start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         DataCell(RANK_COL, "${participant.order}", alignEnd = true, bold = true)
-        DataCell(FLAG_COL, countryFlag(participant.country))
+        FlagCell(countryFlag(participant.country), unreadCommentCount)
         own?.let { (uid, _) ->
             key(uid) {
                 val score = votes[uid]
@@ -276,7 +457,10 @@ private fun ParticipantRow(
                         }
                     } else Modifier
                 ) {
-                    ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = true, medalRank = medalRank, flashOnChange = false)
+                    ScoreCell(
+                        SCORE_COL, score?.toString() ?: "—", highlight = true, medalRank = medalRank,
+                        flashOnChange = false
+                    )
                 }
             }
         }
@@ -285,7 +469,10 @@ private fun ParticipantRow(
                 key(uid) {
                     val score = votes[uid]
                     val medalRank = guessLookup[uid]?.get(participant.order)
-                    ScoreCell(SCORE_COL, score?.toString() ?: "—", highlight = false, medalRank = medalRank, flashOnChange = flashEnabled)
+                    ScoreCell(
+                        SCORE_COL, score?.toString() ?: "—", highlight = false, medalRank = medalRank,
+                        flashOnChange = flashEnabled
+                    )
                 }
             }
         }
@@ -339,15 +526,37 @@ private fun DataCell(width: Dp, text: String, highlight: Boolean = false, alignE
     }
 }
 
+// Flag cell with a small glowing badge in the top-right corner counting other members'
+// comments on this entry that haven't been read yet.
 @Composable
-private fun ScoreCell(width: Dp, score: String, highlight: Boolean, medalRank: Int?, flashOnChange: Boolean = false) {
-    val medalColor = when (medalRank) {
-        1 -> Color(0xFFFFD700)
-        2 -> Color(0xFFB0B8C0)
-        3 -> Color(0xFFCD7F32)
-        else -> null
+private fun FlagCell(flag: String, unreadCount: Int) {
+    Box(Modifier.width(FLAG_COL)) {
+        DataCell(FLAG_COL, flag)
+        if (unreadCount > 0) {
+            Text(
+                text = unreadCount.toString(),
+                fontSize = 8.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF04232A),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 2.dp)
+                    .glow(CommentAccent, radius = 6.dp)
+                    .background(CommentAccent, RoundedCornerShape(7.dp))
+                    .padding(horizontal = 4.dp)
+            )
+        }
     }
+}
 
+@Composable
+private fun ScoreCell(
+    width: Dp,
+    score: String,
+    highlight: Boolean,
+    medalRank: Int?,
+    flashOnChange: Boolean = false
+) {
     val flashAlpha = remember { Animatable(0f) }
     var knownScore by remember { mutableStateOf(score) }
     LaunchedEffect(score) {
@@ -358,34 +567,46 @@ private fun ScoreCell(width: Dp, score: String, highlight: Boolean, medalRank: I
         flashAlpha.animateTo(0f, tween(1000))
     }
 
+    val isEmpty = score == "—"
+    // Outer box: fixed cell width/padding, matching RANK/FLAG cells exactly, so this cell's
+    // content sits at the same vertical position as the rest of the row.
     Box(
         Modifier
             .width(width)
             .padding(horizontal = 4.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        val isEmpty = score == "—"
-        Text(
-            score,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (highlight && !isEmpty) FontWeight.Bold else FontWeight.Normal,
-            color = if (isEmpty) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    else if (highlight) UserHighlight
-                    else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.drawBehind {
-                val fa = flashAlpha.value
-                if (fa > 0f) {
-                    drawCircle(color = UserHighlight.copy(alpha = fa * 0.55f), radius = 17.dp.toPx())
+        // Inner box sized to just the score+medal group (not the full cell lane), so the
+        // medal's offset is relative to this tight box and can't bleed into a neighboring
+        // cell — that happened when the offset was relative to the full-width outer box.
+        // Nested centering (inner box centered in outer, score centered in inner) still
+        // lands the score at the same spot regardless of the inner box's own width, so this
+        // doesn't reintroduce the "shifts when a medal is present" issue either.
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                score,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (highlight && !isEmpty) FontWeight.Bold else FontWeight.Normal,
+                color = if (isEmpty) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+                        else if (highlight) UserHighlight
+                        else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.drawBehind {
+                    val fa = flashAlpha.value
+                    if (fa > 0f) {
+                        drawCircle(color = UserHighlight.copy(alpha = fa * 0.55f), radius = 17.dp.toPx())
+                    }
                 }
-                if (medalColor != null) {
-                    drawCircle(
-                        color = medalColor,
-                        radius = 14.dp.toPx(),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.75.dp.toPx())
-                    )
-                }
+            )
+            if (medalRank in 1..3) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = (-11).dp)
+                        .size(7.dp)
+                        .background(medalDotBrush(medalRank!!), CircleShape)
+                )
             }
-        )
+        }
     }
 }
 

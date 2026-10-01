@@ -758,14 +758,31 @@ fun UsernameShowScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(Icons.Default.Share, contentDescription = s.shareRoomCode, tint = AccentBlue, modifier = Modifier.size(28.dp))
-                                    Text(
-                                        s.aftershowShare,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                        ),
-                                        color = AccentBlue,
+                                    // One word per line: letters spread so the words end flush, or centered
+                                    val labelStyle = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = 13.sp,
+                                        lineHeight = 14.sp,
+                                        fontWeight = FontWeight.Bold,
                                     )
+                                    Column(
+                                        modifier = Modifier.width(IntrinsicSize.Max),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        s.shareCodeLabel.forEach { word ->
+                                            if (s.shareCodeLabelJustified) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    word.forEach { letter ->
+                                                        Text(letter.toString(), style = labelStyle, color = AccentBlue)
+                                                    }
+                                                }
+                                            } else {
+                                                Text(word, style = labelStyle, color = AccentBlue)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

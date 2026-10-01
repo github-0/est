@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,6 +45,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun acceptDisclaimer() {
         prefs.setDisclaimerAccepted()
         _disclaimerAccepted.value = true
+    }
+
+    // The Aftershow plays as a one-slide-at-a-time story until it has been gone through once per results year.
+    fun hasSeenAftershowStory(year: Int): Boolean = prefs.hasSeenAftershowStory(year)
+    fun markAftershowStorySeen(year: Int) = prefs.setAftershowStorySeen(year)
+
+    // Bumped by the developer toggle so an open Aftershow screen re-reads the flag.
+    private val _aftershowStoryVersion = MutableStateFlow(0)
+    val aftershowStoryVersion: StateFlow<Int> = _aftershowStoryVersion.asStateFlow()
+
+    /** Developer shortcut: flips the current results year between story and browse mode. Returns the new "seen" state, or null without results. */
+    fun toggleAftershowStorySeen(): Boolean? {
+        val year = results.value?.year ?: return null
+        val seen = !prefs.hasSeenAftershowStory(year)
+        prefs.setAftershowStorySeen(year, seen)
+        _aftershowStoryVersion.value++
+        return seen
     }
 
     private val _username = MutableStateFlow<String?>(null)
@@ -89,13 +107,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { ready -> if (ready) repository.getShows() else flowOf(emptyMap()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // Eagerly so the listeners start as soon as a room and show are set, not when the Points or
+    // Summary screen first subscribes. Otherwise opening Summary first renders every country at
+    // 0 points and then animates the whole list into its sorted order when the votes arrive.
     val votes: StateFlow<Map<Int, Map<String, Int>>> =
         combine(_roomCode, _selectedShowId) { code, showId -> code to showId }
             .flatMapLatest { (code, showId) ->
                 if (code != null && showId != null) repository.getVotes(code, showId)
                 else flowOf(emptyMap())
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val guesses: StateFlow<Map<String, Map<Int, Int>>> =
         combine(_roomCode, _selectedShowId) { code, showId -> code to showId }
@@ -103,7 +124,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (code != null && showId != null) repository.getGuesses(code, showId)
                 else flowOf(emptyMap())
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     // Always watch final-show votes/guesses, regardless of selected show — used by AfterShowScreen.
     // Eagerly so the Firestore listener starts as soon as a room is joined, avoiding a race where
@@ -119,6 +140,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (code != null) repository.getGuesses(code, "final") else flowOf(emptyMap())
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    // Only the Aftershow's Chatterbox award reads this, so it listens only while that screen is open.
+    val finalComments: StateFlow<Map<Int, Map<String, String>>> = _roomCode
+        .flatMapLatest { code ->
+            if (code != null) repository.getComments(code, "final") else flowOf(emptyMap())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val comments: StateFlow<Map<Int, Map<String, String>>> =
+        combine(_roomCode, _selectedShowId) { code, showId -> code to showId }
+            .flatMapLatest { (code, showId) ->
+                if (code != null && showId != null) repository.getComments(code, showId)
+                else flowOf(emptyMap())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // Key for one member's comment on one entry of the selected show.
+    data class CommentKey(val order: Int, val uid: String)
+
+    // When this device first saw each comment (or its latest edit) arrive, in epoch millis.
+    // There is no server timestamp, so this is the only ordering signal: comments already
+    // present in the baseline snapshot (app start or show switch) have no entry and are
+    // left out of the feed's Latest tab.
+    private val _commentSeenAt = MutableStateFlow<Map<CommentKey, Long>>(emptyMap())
+    val commentSeenAt: StateFlow<Map<CommentKey, Long>> = _commentSeenAt.asStateFlow()
+
+    // Other members' comments that arrived live and haven't been looked at yet (via the
+    // entry's vote dialog or the feed).
+    private val _unreadComments = MutableStateFlow<Set<CommentKey>>(emptySet())
+    val unreadComments: StateFlow<Set<CommentKey>> = _unreadComments.asStateFlow()
+
+    fun markCommentsRead(order: Int) {
+        _unreadComments.value = _unreadComments.value.filterNot { it.order == order }.toSet()
+    }
+
+    fun markAllCommentsRead() {
+        _unreadComments.value = emptySet()
+    }
+
+    // One comment snapshot compared with the previous one for the same room/show.
+    // baseline = first snapshot after a room/show change; nothing in it counts as new.
+    private data class CommentDiff(
+        val baseline: Boolean,
+        val changed: List<CommentKey>,
+        val removed: List<CommentKey>
+    )
+
+    // Diffs successive comment snapshots for the selected show to detect additions/edits.
+    // Declared as its own combine+flatMapLatest (rather than derived from `comments`) so
+    // `previous` resets cleanly on every room/show change: it's a local var inside the
+    // flatMapLatest lambda, scoped to that inner subscription's lifetime, so the first
+    // snapshot after a show switch is always treated as a baseline, never as a burst of
+    // "new" (unread) comments.
+    private val commentDiffs: Flow<CommentDiff> =
+        combine(_roomCode, _selectedShowId) { code, showId -> code to showId }
+            .flatMapLatest { (code, showId) ->
+                // No room/show: emit a baseline so seen-at and unread state are cleared.
+                if (code == null || showId == null) {
+                    return@flatMapLatest flowOf(CommentDiff(true, emptyList(), emptyList()))
+                }
+                var previous: Map<Int, Map<String, String>>? = null
+                repository.getComments(code, showId).map { current ->
+                    val prev = previous
+                    previous = current
+                    if (prev == null) return@map CommentDiff(true, emptyList(), emptyList())
+                    val changed = mutableListOf<CommentKey>()
+                    current.forEach { (order, byUid) ->
+                        byUid.forEach { (uid, text) ->
+                            if (prev[order]?.get(uid) != text) changed += CommentKey(order, uid)
+                        }
+                    }
+                    val removed = prev.flatMap { (order, byUid) ->
+                        byUid.keys.filter { current[order]?.containsKey(it) != true }
+                            .map { CommentKey(order, it) }
+                    }
+                    CommentDiff(false, changed, removed)
+                }
+            }
+
+    private fun applyCommentDiff(diff: CommentDiff) {
+        if (diff.baseline) {
+            _commentSeenAt.value = emptyMap()
+            _unreadComments.value = emptySet()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val myUid = try { repository.getUid() } catch (_: Exception) { null }
+        _commentSeenAt.value = _commentSeenAt.value - diff.removed.toSet() +
+            diff.changed.map { it to now }
+        _unreadComments.value = _unreadComments.value - diff.removed.toSet() +
+            diff.changed.filter { it.uid != myUid }
+    }
 
     val results: StateFlow<ShowResults?> = _authReady
         .flatMapLatest { ready -> if (ready) repository.watchResults("final") else flowOf(null) }
@@ -206,6 +319,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch { _updateInfo.value = checkForUpdate(BuildConfig.VERSION_NAME) }
+
+        // Permanent subscriber so unread state and seen-at times keep flowing
+        // regardless of which tab is on screen (mirrors why finalVotes/finalGuesses are
+        // watched Eagerly).
+        viewModelScope.launch {
+            commentDiffs.collect(::applyCommentDiff)
+        }
     }
 
     fun refreshUpdateCheck() {
@@ -222,7 +342,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             prefs.setRoomCode(code)
             prefs.setUsername(username)
             prefs.setLastJoinedRoomCode(code)
-            prefs.getShowId()?.let { _selectedShowId.value = it }
+            // A new room starts with no show selected.
+            _selectedShowId.value = null
+            prefs.setShowId(null)
             viewModelScope.launch { repository.updateLastActivityAt(code, null) }
         }
         return result
@@ -231,12 +353,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun joinRoom(roomCode: String, username: String): Result<Unit> {
         val result = repository.joinRoom(roomCode, username)
         if (result.isSuccess) {
+            // Restore the saved show only when rejoining the room it was picked in.
+            val sameRoom = prefs.getLastJoinedRoomCode() == roomCode
             _roomCode.value = roomCode
             _username.value = username
             prefs.setRoomCode(roomCode)
             prefs.setUsername(username)
             prefs.setLastJoinedRoomCode(roomCode)
-            prefs.getShowId()?.let { _selectedShowId.value = it }
+            if (sameRoom) {
+                prefs.getShowId()?.let { _selectedShowId.value = it }
+            } else {
+                _selectedShowId.value = null
+                prefs.setShowId(null)
+            }
             viewModelScope.launch { repository.updateLastActivityAt(roomCode, null) }
         }
         return result
@@ -286,22 +415,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitGuess(participantOrder: Int, rank: Int?) {
+    // Submitting an empty string deletes the caller's existing comment for this entry.
+    fun submitComment(order: Int, text: String) {
         val showId = _selectedShowId.value ?: return
         val code = _roomCode.value ?: return
         viewModelScope.launch {
             try {
                 val uid = repository.getUid()
-                val existingRank = guesses.value[uid]
-                    ?.entries?.find { it.value == participantOrder }?.key
-                if (rank == null) {
-                    if (existingRank != null) repository.removeGuess(code, showId, uid, existingRank)
-                } else {
-                    if (existingRank != null && existingRank != rank) {
-                        repository.removeGuess(code, showId, uid, existingRank)
-                    }
-                    repository.setGuess(code, showId, uid, rank, participantOrder)
-                }
+                repository.submitComment(code, showId, order, uid, text)
+            } catch (_: Exception) { /* best-effort; e.g. auth not ready or write denied */ }
+        }
+    }
+
+    fun submitGuess(participantOrder: Int, rank: Int?) {
+        val showId = _selectedShowId.value ?: return
+        val code = _roomCode.value ?: return
+        val uid = myUid ?: return
+        // A country holds at most one rank and a rank at most one country: drop this country
+        // from wherever it was, then (re)place it, overwriting the rank's previous occupant.
+        val current = guesses.value[uid].orEmpty()
+        val picks = current.filterValues { it != participantOrder } +
+            listOfNotNull(rank?.let { it to participantOrder })
+        if (picks == current) return
+        viewModelScope.launch {
+            try {
+                repository.setGuesses(code, showId, uid, picks)
             } catch (_: Exception) { /* best-effort; e.g. auth not ready or write denied */ }
         }
     }

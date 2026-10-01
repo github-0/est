@@ -25,4 +25,7 @@ class PrefsStore(context: Context) {
 
     fun hasAcceptedDisclaimer(): Boolean = prefs.getBoolean("disclaimer_accepted", false)
     fun setDisclaimerAccepted() = prefs.edit().putBoolean("disclaimer_accepted", true).apply()
+
+    fun hasSeenAftershowStory(year: Int): Boolean = prefs.getBoolean("aftershow_story_seen_$year", false)
+    fun setAftershowStorySeen(year: Int, seen: Boolean = true) = prefs.edit().putBoolean("aftershow_story_seen_$year", seen).apply()
 }

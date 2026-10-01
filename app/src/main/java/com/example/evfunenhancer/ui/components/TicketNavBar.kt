@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
@@ -16,7 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,7 +70,10 @@ data class TicketNavItem(
     val selected: Boolean,
     val enabled: Boolean,
     val showHighlight: Boolean = false,
+    /** False while a saved session is being restored, so tabs unlock silently on launch. */
+    val animateUnlock: Boolean = true,
     val onClick: () -> Unit,
+    val onLongClick: (() -> Unit)? = null,
 )
 
 /**
@@ -136,11 +141,12 @@ private fun PerforationStrip() {
 private val StubInkColor = Color(0xFF1A0E2E)
 private val UnlockAccentColor = Color(0xFF6D63FC)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
     val dimAlpha by animateFloatAsState(
         targetValue = if (item.enabled) 0.5f else 0.25f,
-        animationSpec = tween(400),
+        animationSpec = if (item.animateUnlock) tween(400) else snap(),
         label = "dimAlpha",
     )
     val dimColor = MaterialTheme.colorScheme.onBackground.copy(alpha = dimAlpha)
@@ -165,7 +171,7 @@ private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
     val unlockScale = remember { Animatable(1f) }
     val unlockGlow = remember { Animatable(0f) }
     LaunchedEffect(item.enabled) {
-        if (item.enabled && !wasEnabled) {
+        if (item.enabled && !wasEnabled && item.animateUnlock) {
             launch {
                 unlockScale.snapTo(1f)
                 unlockScale.animateTo(1.45f, tween(200, easing = FastOutSlowInEasing))
@@ -180,9 +186,10 @@ private fun TicketTab(item: TicketNavItem, modifier: Modifier = Modifier) {
     }
 
     Box(
-        modifier = modifier.clickable(
+        modifier = modifier.combinedClickable(
             enabled = item.enabled,
             onClick = item.onClick,
+            onLongClick = item.onLongClick,
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
         ),

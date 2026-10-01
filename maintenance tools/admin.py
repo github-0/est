@@ -18,7 +18,7 @@ from _credentials import PROJECT_ID, SERVICE_ACCOUNT_KEY
 BASE_URL            = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents"
 AUTH_BASE_URL       = f"https://identitytoolkit.googleapis.com/v1/projects/{PROJECT_ID}"
 AUTH_V3_URL         = "https://www.googleapis.com/identitytoolkit/v3/relyingparty"
-BACKUPS_DIR         = Path(__file__).parent.parent / "Backups"
+BACKUPS_DIR         = Path(__file__).parent.parent / "backups"
 PARTICIPANTS_FILE   = Path(__file__).parent / "participants.json"
 RESULTS_FILE        = Path(__file__).parent / "results.json"
 
@@ -32,6 +32,55 @@ _DEMO_MEMBERS   = [
     {"uid": "demouid-JJ",                   "username": "JJ"},
     {"uid": "demouid-MK",                   "username": "MK"},
     {"uid": "demouid-TV",                  "username": "TV"},
+]
+# Demo comments grouped by length, from one word up to the 100-char limit.
+# Each member gets one comment from a different number of bands (see do_create_demo_room).
+_DEMO_COMMENT_BANDS = [
+    ["Wow", "Iconic", "Meh", "Banger", "Brave", "Interesting", "Noted", "Lovely"],
+    [
+        "That key change though", "Not my cup of tea", "Costume of the year", "Pure televote bait",
+        "Well, that happened", "Bit much, isn't it", "Brave choice of trousers", "Mum would call it lively",
+    ],
+    [
+        "Goosebumps from the very first note, honestly",
+        "Staging was wild and I loved every second",
+        "Vocals were a bit shaky live but still fun",
+        "This one really grows on you after a while",
+        "Has the same energy as a wet Sunday afternoon",
+        "I've seen livelier queues at the post office",
+        "Bold to sing in that key. Wrong, but bold",
+        "Perfectly fine. Like a plain cracker, really",
+    ],
+    [
+        "Why is nobody talking about this? Easily one of the best of the night",
+        "Bring back the wind machine, this needed more hair blowing drama",
+        "Dance break was iconic, I already tried copying it in the living room",
+        "Strong lyrics and a great verse, but the chorus never quite takes off",
+        "Not saying it was bad, but I suddenly remembered some laundry",
+        "Very much a song. It had a beginning, a middle and, mercifully, an end",
+        "Nul points from the cat, who left the room during the first chorus",
+        "The outfit was doing a lot of the work. The song stood well back",
+    ],
+    [
+        "Gave me serious 2000s vibes, like something I would have burned onto a CD and played on repeat",
+        "Pyro budget: unlimited. Song budget: questionable. Still entertained for three minutes though",
+        "Dark horse for the win here, the jury will eat this up and the televote might even follow along",
+        "Skipping this one on Spotify for sure, but on stage it somehow worked better than it had any right",
+        "I'd call it perfectly adequate, which in this house is the highest honour going",
+        "Lovely stuff. Reminds me of the music in a lift I was once stuck in for forty minutes",
+        "The wind machine worked harder than anyone else on that stage and frankly deserved the points",
+        "Not for me, but I'm sure it's someone's favourite. Possibly the songwriter's mum. Possibly",
+    ],
+    [
+        "Okay hear me out: this is the best entry of the year and anyone who disagrees is simply wrong, sorry",
+        "I was ready to hate it, then the bridge hit and now I am emotionally invested in this whole country.",
+        "Three minutes of pure chaos with a choir, a violin, a fake snowstorm and somehow it all works. 12/10",
+        "My grandma would love this, my little brother hates it, and I have been humming it all evening long.",
+        "Started a coffee at the first note. It was brewed, poured and stone cold before the chorus arrived.",
+        "We'll remember this one fondly, the way one fondly remembers a camping trip where it rained all week",
+        "Mildly pleasant. I'd say more, but that is already all the enthusiasm I can muster on a weeknight.",
+        "Brave to attempt that key change without telling the singer first. Admirable, in its own little way",
+    ],
 ]
 
 
@@ -132,8 +181,17 @@ def _fs_field_path(name):
     return f"`{name}`"
 
 
+def _encode_path(path):
+    """Percent-encode each segment of a Firestore document/collection path.
+
+    Doc IDs can contain non-ASCII characters (e.g. usernames with accented
+    letters), which urllib refuses to send unencoded.
+    """
+    return "/".join(urllib.parse.quote(seg, safe="") for seg in path.split("/"))
+
+
 def patch(token, path, fields):
-    url  = f"{BASE_URL}/{path}"
+    url  = f"{BASE_URL}/{_encode_path(path)}"
     body = json.dumps({"fields": {k: to_fs(v) for k, v in fields.items()}}).encode()
     req  = urllib.request.Request(
         url, data=body, method="PATCH",
@@ -145,7 +203,7 @@ def patch(token, path, fields):
 
 def patch_raw(token, path, raw_fields):
     """PATCH with pre-encoded Firestore wire-format fields (used for rename ops)."""
-    url  = f"{BASE_URL}/{path}"
+    url  = f"{BASE_URL}/{_encode_path(path)}"
     body = json.dumps({"fields": raw_fields}).encode()
     req  = urllib.request.Request(
         url, data=body, method="PATCH",
@@ -158,7 +216,7 @@ def patch_raw(token, path, raw_fields):
 def delete_field(token, path, field_name):
     """Remove one field from a document via updateMask (field not present in body = deleted)."""
     fp  = _fs_field_path(field_name)
-    url = f"{BASE_URL}/{path}?updateMask.fieldPaths={urllib.parse.quote(fp)}"
+    url = f"{BASE_URL}/{_encode_path(path)}?updateMask.fieldPaths={urllib.parse.quote(fp)}"
     body = json.dumps({"fields": {}}).encode()
     req  = urllib.request.Request(
         url, data=body, method="PATCH",
@@ -170,7 +228,7 @@ def delete_field(token, path, field_name):
 
 def get_doc(token, path):
     req = urllib.request.Request(
-        f"{BASE_URL}/{path}",
+        f"{BASE_URL}/{_encode_path(path)}",
         headers={"Authorization": f"Bearer {token}"},
     )
     try:
@@ -185,7 +243,7 @@ def get_doc(token, path):
 def list_collection(token, path):
     page_token = None
     while True:
-        url = f"{BASE_URL}/{path}?showMissing=true"
+        url = f"{BASE_URL}/{_encode_path(path)}?showMissing=true"
         if page_token:
             url += f"&pageToken={page_token}"
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
@@ -204,7 +262,7 @@ def list_collection(token, path):
 
 def delete_doc(token, path):
     req = urllib.request.Request(
-        f"{BASE_URL}/{path}", method="DELETE",
+        f"{BASE_URL}/{_encode_path(path)}", method="DELETE",
         headers={"Authorization": f"Bearer {token}"},
     )
     try:
@@ -217,7 +275,7 @@ def delete_doc(token, path):
 
 
 def list_collection_ids(token, doc_path=None):
-    url = f"{BASE_URL}/{doc_path}:listCollectionIds" if doc_path else f"{BASE_URL}:listCollectionIds"
+    url = f"{BASE_URL}/{_encode_path(doc_path)}:listCollectionIds" if doc_path else f"{BASE_URL}:listCollectionIds"
     ids, page_token = [], None
     while True:
         body = {"pageSize": 100}
@@ -275,8 +333,7 @@ def delete_member(token, room_code, uid, username):
     delete_doc(token, f"{base}/members/{uid}")
     print(f"  Deleted member document ({uid})")
 
-    encoded = urllib.parse.quote(username.lower(), safe="")
-    delete_doc(token, f"{base}/usernames/{encoded}")
+    delete_doc(token, f"{base}/usernames/{username.lower()}")
     print(f"  Deleted username lock '{username.lower()}'")
 
     for show_doc in list_collection(token, f"{base}/votes"):
@@ -289,6 +346,17 @@ def delete_member(token, room_code, uid, username):
                 count += 1
         if count:
             print(f"  Removed votes from {count} entr{'y' if count == 1 else 'ies'} (show: {show_id})")
+
+    for show_doc in list_collection(token, f"{base}/comments"):
+        show_id = show_doc["name"].rsplit("/", 1)[-1]
+        count   = 0
+        for entry_doc in list_collection(token, f"{base}/comments/{show_id}/entries"):
+            order = entry_doc["name"].rsplit("/", 1)[-1]
+            if uid in entry_doc.get("fields", {}):
+                delete_field(token, f"{base}/comments/{show_id}/entries/{order}", uid)
+                count += 1
+        if count:
+            print(f"  Removed comments from {count} entr{'y' if count == 1 else 'ies'} (show: {show_id})")
 
     for show_doc in list_collection(token, f"{base}/guesses"):
         show_id = show_doc["name"].rsplit("/", 1)[-1]
@@ -317,6 +385,13 @@ def delete_room(token, room_code):
             delete_doc(token, f"{base}/votes/{show_id}/entries/{order}")
         print(f"  Deleted {len(orders)} vote entries (show: {show_id})")
 
+    for show_doc in list_collection(token, f"{base}/comments"):
+        show_id = show_doc["name"].rsplit("/", 1)[-1]
+        orders  = [d["name"].rsplit("/", 1)[-1] for d in list_collection(token, f"{base}/comments/{show_id}/entries")]
+        for order in orders:
+            delete_doc(token, f"{base}/comments/{show_id}/entries/{order}")
+        print(f"  Deleted {len(orders)} comment entries (show: {show_id})")
+
     for show_doc in list_collection(token, f"{base}/guesses"):
         show_id = show_doc["name"].rsplit("/", 1)[-1]
         uids2   = [d["name"].rsplit("/", 1)[-1] for d in list_collection(token, f"{base}/guesses/{show_id}/picks")]
@@ -328,7 +403,7 @@ def delete_room(token, room_code):
     print(f"  Deleted room document {room_code}")
 
 
-def purge_stale_rooms(token, days=60):
+def purge_stale_rooms(token, days=90):
     """Delete all rooms with no activity in the last `days` days. Returns count deleted."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -371,7 +446,7 @@ def _count_documents(token, collection_path):
     parts  = collection_path.split("/")
     col_id = parts[-1]
     parent = "/".join(parts[:-1])
-    url    = f"{BASE_URL}/{parent}:runAggregationQuery" if parent else f"{BASE_URL}:runAggregationQuery"
+    url    = f"{BASE_URL}/{_encode_path(parent)}:runAggregationQuery" if parent else f"{BASE_URL}:runAggregationQuery"
     body   = {
         "structuredAggregationQuery": {
             "aggregations": [{"count": {}, "alias": "count"}],
@@ -610,6 +685,25 @@ def do_create_demo_room(token):
         status = patch(token, f"rooms/{room}/guesses/{show}/picks/{uid}", picks)
         name   = next(m["username"] for m in _DEMO_MEMBERS if m["uid"] == uid)
         print(f"  Guess picks for {name} ({uid})  [HTTP {status}]")
+
+    # Clear comments from a previous run first: patch replaces whole documents,
+    # so entries not picked this time would otherwise keep stale comments.
+    comments_path = f"rooms/{room}/comments/{show}/entries"
+    for doc in list_collection(token, comments_path):
+        delete_doc(token, f"{comments_path}/{doc['name'].rsplit('/', 1)[-1]}")
+
+    # Each member gets a different number of comments (6, 5, 4, 3 in random
+    # member order), so the Chatterbox award never ties.
+    comments = {}
+    counts = range(len(_DEMO_COMMENT_BANDS), len(_DEMO_COMMENT_BANDS) - len(all_uids), -1)
+    for uid, count in zip(random.sample(all_uids, len(all_uids)), counts):
+        bands = random.sample(_DEMO_COMMENT_BANDS, count)
+        texts = [random.choice(band) for band in bands]
+        for order, text in zip(random.sample(range(1, 26), len(texts)), texts):
+            comments.setdefault(order, {})[uid] = text
+    for order in sorted(comments):
+        status = patch(token, f"{comments_path}/{order}", comments[order])
+        print(f"  Comments entry {order:2d} ({len(comments[order])})  [HTTP {status}]")
 
     print(f"\nDone. Demo room {room} created.")
 
@@ -866,7 +960,7 @@ def menu_database(token):
         elif choice == "4":
             do_upload_results(token)
         elif choice == "5":
-            print(f"\nCreate demo room {_DEMO_ROOM_CODE} with fixed members and randomly generated votes/guesses (overwrites existing data).")
+            print(f"\nCreate demo room {_DEMO_ROOM_CODE} with fixed members and randomly generated votes/guesses/comments (overwrites existing data).")
             if confirm():
                 do_create_demo_room(token)
         elif choice == "6":
@@ -890,15 +984,18 @@ def _menu_room_manage(token):
         created  = room_fields.get("createdAt", "—")
         last_act = room_fields.get("lastActivityAt", "—")
 
+        def _print_members():
+            if members:
+                print("Members:")
+                for i, m in enumerate(members, 1):
+                    print(f"  {i}) {m['username']}  (uid: {m['uid']})")
+            else:
+                print("Members: (none)")
+
         print(f"\nRoom: {room_code}")
         print(f"Created:       {created}")
         print(f"Last activity: {last_act}")
-        if members:
-            print("Members:")
-            for i, m in enumerate(members, 1):
-                print(f"  {i}) {m['username']}  (uid: {m['uid']})")
-        else:
-            print("Members: (none)")
+        _print_members()
 
         while True:
             print("\n  1) Delete a member")
@@ -919,13 +1016,14 @@ def _menu_room_manage(token):
                     print("Invalid selection.")
                     continue
                 m = members[idx]
-                print(f"\nDelete {m['username']} (uid: {m['uid']}) and all their votes/guesses?")
+                print(f"\nDelete {m['username']} (uid: {m['uid']}) and all their votes/comments/guesses?")
                 if confirm():
                     delete_member(token, room_code, m["uid"], m["username"])
                     members.pop(idx)
                     print("Done.")
+                    _print_members()
             elif choice == "2":
-                print(f"\nDelete room {room_code} and ALL its data (members, votes, guesses)?")
+                print(f"\nDelete room {room_code} and ALL its data (members, votes, comments, guesses)?")
                 if confirm():
                     delete_room(token, room_code)
                     print("Done.")
@@ -936,7 +1034,7 @@ def menu_room(token):
     while True:
         print("\nRoom maintenance")
         print("  1) Manage specific room")
-        print("  2) Purge rooms inactive for 60+ days")
+        print("  2) Purge stale rooms (90+ days)")
         print("  3) Purge stale anonymous Auth users (90+ days)")
         print("  0) Back")
         choice = _input_safe("\nChoice: ").strip()

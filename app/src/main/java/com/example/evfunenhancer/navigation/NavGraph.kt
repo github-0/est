@@ -1,5 +1,6 @@
 package com.example.evfunenhancer.navigation
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -80,6 +82,8 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
     val selectedShow by vm.selectedShowId.collectAsState()
     val language by vm.language.collectAsState()
     val isReady = username != null && selectedShow != null && roomCode != null
+    // The saved room is restored before startup completes; don't celebrate that as an unlock.
+    val startupComplete by vm.startupComplete.collectAsState()
 
     val strings: AppStrings = if (language == "fi") StringsFi else StringsEn
     val disclaimerAccepted by vm.disclaimerAccepted.collectAsState()
@@ -106,6 +110,7 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
                 val currentRoute = backStack?.destination?.route
                 val results by vm.results.collectAsState()
                 val resultsUploaded = results != null
+                val context = LocalContext.current
 
                 fun navigate(route: String) {
                     navController.navigate(route) {
@@ -127,6 +132,7 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
                                 stubBrush = screen.stubBrush,
                                 selected = currentRoute == screen.route,
                                 enabled = screen == Screen.Profile || isReady,
+                                animateUnlock = startupComplete,
                                 onClick = { navigate(screen.route) },
                             )
                         )
@@ -140,7 +146,19 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
                             selected = currentRoute == Screen.Aftershow.route,
                             enabled = isReady,
                             showHighlight = isReady && resultsUploaded,
+                            animateUnlock = startupComplete,
                             onClick = { navigate(Screen.Aftershow.route) },
+                            // Developer shortcut: reset / skip the first-viewing story.
+                            onLongClick = {
+                                vm.toggleAftershowStorySeen()?.let { seen ->
+                                    Toast.makeText(
+                                        context,
+                                        if (seen) strings.aftershowStorySkipped else strings.aftershowStoryReset,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                navigate(Screen.Aftershow.route)
+                            },
                         )
                     )
                 }

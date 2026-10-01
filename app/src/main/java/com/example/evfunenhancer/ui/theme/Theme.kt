@@ -13,7 +13,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.example.evfunenhancer.R
 
-private val Cinzel = FontFamily(Font(R.font.cinzel_bold, FontWeight.Bold))
 private val Montserrat = FontFamily(
     Font(R.font.montserrat_bold, FontWeight.Bold),
     Font(R.font.montserrat_bold, FontWeight.SemiBold),
@@ -23,6 +22,12 @@ private val Montserrat = FontFamily(
 
 val GradientPink = Brush.horizontalGradient(listOf(Color(0xFFEC4899), Color(0xFFA855F7)))
 val GradientGold = Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFF8C00)))
+
+// Accent for the user-comments feature: marks commented score cells in the grid,
+// the comment pill in the voting dialog, and the toast/read-dialog affordances.
+// Chosen because it isn't used elsewhere in the palette, so it doesn't collide with
+// the purple own-column highlight or the gold/silver/bronze winner-guess ring.
+val CommentAccent = Color(0xFF06B6D4)
 
 private val ColorScheme = darkColorScheme(
     error = Color(0xFFE53935),

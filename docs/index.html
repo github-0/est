@@ -49,7 +49,6 @@ a:hover{text-decoration:underline;}
 .phone{width:240px;flex-shrink:0;border-radius:34px;padding:9px;background:#1c1728;box-shadow:24px 28px 60px -24px rgba(0,0,0,.7),0 0 0 1px var(--line);display:flex;flex-direction:column;}
 .phone img{display:block;width:100%;}
 .screen{border-radius:25px;overflow:hidden;}
-.status-bar{height:6px;background:#0d0c1e;}
 .slider-wrap{overflow:hidden;}
 .slider-track{display:flex;will-change:transform;transition:transform .45s cubic-bezier(.4,0,.2,1);}
 .phone .slider-track img{flex-shrink:0;border-radius:0;}
@@ -109,14 +108,15 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
       </div>
       <div class="phone">
         <div class="screen">
-        <div class="status-bar"></div>
         <div class="slider-wrap">
           <div class="slider-track" id="slider-track">
-            <img data-screen="select" src="assets/screenshots/en_select.jpg" alt="Select show">
-            <img data-screen="joined" src="assets/screenshots/en_joined.jpg" alt="Room">
-            <img data-screen="points" src="assets/screenshots/en_points.jpg" alt="Points">
-            <img data-screen="summary" src="assets/screenshots/en_summary.jpg" alt="Summary">
-            <img data-screen="aftershow" src="assets/screenshots/en_aftershow.jpg" alt="Aftershow">
+            <img data-screen="join" src="assets/screenshots/en_join.webp" alt="Create or join a room">
+            <img data-screen="settings" src="assets/screenshots/en_settings.webp" alt="Room and show">
+            <img data-screen="voting" src="assets/screenshots/en_voting.webp" alt="Voting">
+            <img data-screen="picker" src="assets/screenshots/en_picker.webp" alt="Give points">
+            <img data-screen="summary" src="assets/screenshots/en_summary.webp" alt="Summary">
+            <img data-screen="map" src="assets/screenshots/en_map.webp" alt="Aftershow map">
+            <img data-screen="twins" src="assets/screenshots/en_twins.webp" alt="Taste twins">
           </div>
         </div>
         </div>
@@ -209,7 +209,7 @@ function setLang(lang) {
   document.documentElement.lang = lang;
   localStorage.setItem('lang', lang);
   document.querySelectorAll('#slider-track [data-screen]').forEach(img => {
-    img.src = `assets/screenshots/${lang}_${img.dataset.screen}.jpg`;
+    img.src = `assets/screenshots/${lang}_${img.dataset.screen}.webp`;
   });
   if (typeof carouselReset === 'function') carouselReset();
 }
