@@ -33,8 +33,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = FirestoreRepository()
     private val prefs = PrefsStore(application)
+
+    // Test database mode: fixed for the process lifetime (switching restarts the app).
+    val testMode: Boolean = prefs.testMode
+    private val repository = FirestoreRepository(testMode)
+
+    /** Saves the mode; the caller must restart the app for it to take effect. */
+    fun saveTestMode(enabled: Boolean) {
+        prefs.setTestMode(enabled)
+    }
 
     private val _authReady = MutableStateFlow(false)
     val authReady: StateFlow<Boolean> = _authReady.asStateFlow()
@@ -125,9 +133,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ready && cuid != null && try { cuid == repository.getUid() } catch (_: Exception) { false }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    val shows: StateFlow<Map<String, List<Participant>>> = _authReady
-        .flatMapLatest { ready -> if (ready) repository.getShows() else flowOf(emptyMap()) }
+    // null until the first snapshot arrives, so "no shows yet" can be told apart from "still loading".
+    private val loadedShows: StateFlow<Map<String, List<Participant>>?> = _authReady
+        .flatMapLatest { ready -> if (ready) repository.getShows() else flowOf(null) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val shows: StateFlow<Map<String, List<Participant>>> = loadedShows
+        .map { it ?: emptyMap() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // True once the first shows snapshot has arrived, so the Profile tab's "coming soon" note
+    // doesn't flash while the shows are still loading.
+    val showsLoaded: StateFlow<Boolean> = loadedShows
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Drops the selected show once the shows have loaded and it has no participants (e.g. the
+    // shows were hidden with admin.py), so it isn't shown as picked and Points/Summary lock.
+    init {
+        viewModelScope.launch {
+            combine(loadedShows, _selectedShowId) { loaded, id ->
+                loaded != null && id != null && loaded[id].isNullOrEmpty()
+            }.collect { stale ->
+                if (stale) {
+                    _selectedShowId.value = null
+                    prefs.setShowId(null)
+                }
+            }
+        }
+    }
 
     // Eagerly so the listeners start as soon as a room and show are set, not when the Points or
     // Summary screen first subscribes. Otherwise opening Summary first renders every country at

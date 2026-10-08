@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,9 +82,34 @@ data class TicketNavItem(
  * edge, and the active tab "stamps" onto a rotated colour block in that tab's own hue.
  */
 @Composable
-fun TicketNavBar(items: List<TicketNavItem>, modifier: Modifier = Modifier) {
-    Column(
+fun TicketNavBar(items: List<TicketNavItem>, modifier: Modifier = Modifier, testMode: Boolean = false) {
+    Box(modifier.fillMaxWidth()) {
+        TicketNavBarContent(items)
+        if (testMode) TestModeTag(Modifier.align(Alignment.TopCenter))
+    }
+}
+
+/** "TEST" tag straddling the perforated edge, shown on every tab while on the test database. */
+@Composable
+private fun TestModeTag(modifier: Modifier = Modifier) {
+    Text(
+        "TEST",
+        color = Color.White,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 2.sp,
         modifier = modifier
+            .offset(y = (-9).dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.error)
+            .padding(horizontal = 10.dp, vertical = 1.dp)
+    )
+}
+
+@Composable
+private fun TicketNavBarContent(items: List<TicketNavItem>) {
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()

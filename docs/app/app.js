@@ -32,6 +32,17 @@ const store = {
   },
 };
 
+// Hidden test-database switch (five quick taps on the banner), like the app's Maintenance
+// screen: every top-level collection gets the "test_" prefix. The room, last room and show are
+// remembered per environment; username and language are shared.
+const testMode = store.get("testMode") === "1";
+const ENV_KEYS = new Set(["roomCode", "lastRoom", "showId"]);
+const envStore = {
+  get: key => store.get(ENV_KEYS.has(key) && testMode ? "test_" + key : key),
+  set: (key, value) => store.set(ENV_KEYS.has(key) && testMode ? "test_" + key : key, value),
+};
+const col = name => (testMode ? "test_" : "") + name;
+
 const state = {
   lang: store.get("lang") ?? (navigator.language?.toLowerCase().startsWith("fi") ? "fi" : "en"),
   phase: "connecting",        // connecting | join | room | error
@@ -102,7 +113,7 @@ function showError(key) {
 function watchShows() {
   if (showsWatched) return;
   showsWatched = true;
-  onSnapshot(collection(db, "shows"), snap => {
+  onSnapshot(collection(db, col("shows")), snap => {
     const shows = {};
     let year = null;
     snap.forEach(d => {
@@ -120,16 +131,16 @@ function watchShows() {
 
 // Re-enter the saved room if this browser is still a member of it.
 async function restoreRoom() {
-  const code = store.get("roomCode");
+  const code = envStore.get("roomCode");
   if (code) {
     try {
-      const member = await getDoc(doc(db, "rooms", code, "members", state.uid));
+      const member = await getDoc(doc(db, col("rooms"), code, "members", state.uid));
       if (member.exists()) {
-        const room = await getDoc(doc(db, "rooms", code));
+        const room = await getDoc(doc(db, col("rooms"), code));
         enterRoom(code, member.data().username, room.data()?.lastActivityAt ?? null);
         return;
       }
-      store.set("roomCode", null);
+      envStore.set("roomCode",null);
     } catch { /* offline or no access: fall back to the join form */ }
   }
   state.phase = "join";
@@ -144,7 +155,7 @@ async function restoreRoom() {
 // member doc, keeping the original joinedAt on a re-join.
 async function joinRoom(code, username) {
   const uid = state.uid;
-  const roomRef = doc(db, "rooms", code);
+  const roomRef = doc(db, col("rooms"), code);
   if (!(await getDoc(roomRef)).exists()) throw new Error("notFound");
   const usernameRef = doc(roomRef, "usernames", username.toLowerCase());
   const memberRef = doc(roomRef, "members", uid);
@@ -160,20 +171,20 @@ async function joinRoom(code, username) {
 
 function enterRoom(code, username, lastActivityAt) {
   // Restore the saved show only when coming back to the room it was picked in.
-  const sameRoom = store.get("lastRoom") === code;
+  const sameRoom = envStore.get("lastRoom") === code;
   state.roomCode = code;
   state.username = username;
-  state.showId = sameRoom ? store.get("showId") : null;
+  state.showId = sameRoom ? envStore.get("showId") : null;
   state.phase = "room";
   state.notice = null;
-  store.set("roomCode", code);
+  envStore.set("roomCode",code);
   store.set("username", username);
-  store.set("lastRoom", code);
-  if (!sameRoom) store.set("showId", null);
+  envStore.set("lastRoom", code);
+  if (!sameRoom) envStore.set("showId", null);
 
   touchRoom(code, lastActivityAt);
 
-  const roomRef = doc(db, "rooms", code);
+  const roomRef = doc(db, col("rooms"), code);
   roomUnsubs = [
     onSnapshot(collection(roomRef, "members"), snap => {
       const members = {};
@@ -200,7 +211,7 @@ function enterRoom(code, username, lastActivityAt) {
 // Keeps lastActivityAt fresh for the 90-day purge; written at most once a day.
 function touchRoom(code, lastActivityAt) {
   if (lastActivityAt && Date.now() - lastActivityAt.toMillis() < DAY_MS) return;
-  updateDoc(doc(db, "rooms", code), { lastActivityAt: Timestamp.now() }).catch(() => {});
+  updateDoc(doc(db, col("rooms"), code), { lastActivityAt: Timestamp.now() }).catch(() => {});
 }
 
 // Being removed by the room creator revokes read access, so listeners fail with permission-denied.
@@ -218,7 +229,7 @@ function onRemoved() {
 
 function leaveRoom() {
   if (state.roomCode && state.uid) {
-    deleteDoc(doc(db, "rooms", state.roomCode, "presence", state.uid)).catch(() => {});
+    deleteDoc(doc(db, col("rooms"), state.roomCode, "presence", state.uid)).catch(() => {});
   }
   exitRoom();
   state.phase = "join";
@@ -233,7 +244,7 @@ function exitRoom() {
   stopHeartbeat();
   closePicker();
   Object.assign(state, { roomCode: null, username: null, showId: null, members: {}, presence: {}, votes: {} });
-  store.set("roomCode", null);
+  envStore.set("roomCode",null);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +253,7 @@ function exitRoom() {
 
 function sendHeartbeat() {
   if (!state.roomCode || !state.uid) return;
-  setDoc(doc(db, "rooms", state.roomCode, "presence", state.uid), { lastSeenAt: serverTimestamp() })
+  setDoc(doc(db, col("rooms"), state.roomCode, "presence", state.uid), { lastSeenAt: serverTimestamp() })
     .catch(() => {});
 }
 
@@ -274,7 +285,7 @@ setInterval(() => { if (state.phase === "room") renderMembers(); }, 60 * 1000);
 function selectShow(showId) {
   if (state.showId === showId) return;
   state.showId = showId;
-  store.set("showId", showId);
+  envStore.set("showId", showId);
   watchVotes();
   renderRoom();
 }
@@ -286,7 +297,7 @@ function watchVotes() {
   state.votes = {};
   const { roomCode, showId } = state;
   if (!roomCode || !showId) return;
-  votesUnsub = onSnapshot(collection(db, "rooms", roomCode, "votes", showId, "entries"), snap => {
+  votesUnsub = onSnapshot(collection(db, col("rooms"), roomCode, "votes", showId, "entries"), snap => {
     const votes = {};
     snap.forEach(d => {
       const order = Number.parseInt(d.id, 10);
@@ -316,7 +327,7 @@ function submitVote(order, points) {
   const { roomCode, showId, uid } = state;
   if (!roomCode || !showId || !uid) return;
   // The local snapshot fires straight away, so the table updates before the server confirms.
-  setDoc(doc(db, "rooms", roomCode, "votes", showId, "entries", String(order)), { [uid]: points }, { merge: true })
+  setDoc(doc(db, col("rooms"), roomCode, "votes", showId, "entries", String(order)), { [uid]: points }, { merge: true })
     .catch(() => toast(t().voteFailed));
 }
 
@@ -366,7 +377,7 @@ function renderJoin(app) {
   // Keep what was typed when the form re-renders (failed join, language switch).
   const prev = $("#join-form");
   const params = new URLSearchParams(location.search);
-  const code = normalizeCode(prev?.code.value ?? params.get("room") ?? store.get("lastRoom") ?? "");
+  const code = normalizeCode(prev?.code.value ?? params.get("room") ?? envStore.get("lastRoom") ?? "");
   const username = normalizeUsername(prev?.username.value ?? store.get("username") ?? "");
   app.innerHTML = `
     <form class="join card" id="join-form" novalidate>
@@ -383,7 +394,7 @@ function renderJoin(app) {
       </label>
       ${state.joinError ? `<div class="error">${esc(state.joinError)}</div>` : ""}
       <button class="btn" type="submit" id="join-btn">${esc(t().joinRoom)}</button>
-      <p class="small-print">${esc(t().createInApp)} <a href="../">${esc(t().getApp)}</a></p>
+      <p class="small-print">${t().webAppNote(`<a href="../">${esc(t().webAppLinkText)}</a>`)}</p>
     </form>`;
   const form = $("#join-form");
   const btn = $("#join-btn");
@@ -577,6 +588,26 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
 }
+
+// Five quick taps on the banner toggle the test database.
+const BANNER_TAPS = 5;
+const BANNER_TAP_GAP_MS = 400;
+let bannerTaps = 0;
+let bannerTimer = null;
+$(".banner-wrap").addEventListener("click", () => {
+  clearTimeout(bannerTimer);
+  if (++bannerTaps < BANNER_TAPS) {
+    bannerTimer = setTimeout(() => { bannerTaps = 0; }, BANNER_TAP_GAP_MS);
+    return;
+  }
+  bannerTaps = 0;
+  const s = t();
+  if (!confirm(`${testMode ? s.switchToProduction : s.switchToTest}\n\n${s.switchDatabaseBody}`)) return;
+  store.set("testMode", testMode ? null : "1");
+  location.reload();
+});
+
+if (testMode) $(".topbar").insertAdjacentHTML("beforeend", `<span class="test-tag">TEST</span>`);
 
 document.querySelectorAll(".lang-btn").forEach(b => b.addEventListener("click", () => {
   state.lang = b.dataset.lang;

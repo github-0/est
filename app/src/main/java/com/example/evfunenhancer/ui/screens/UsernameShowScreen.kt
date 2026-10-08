@@ -344,6 +344,36 @@ private fun ShowSegmentedControl(
     }
 }
 
+// Shown under the show selector while no show has participants yet, so the user knows why
+// nothing can be picked.
+@Composable
+private fun ShowsComingSoonNote(title: String, hint: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(100.dp))
+                .background(GlowPink.copy(alpha = 0.15f))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = GlowPink
+            )
+        }
+        Text(
+            hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @Composable
 private fun GradientSaveButton(
     enabled: Boolean,
@@ -570,6 +600,9 @@ fun UsernameShowScreen(
     val currentUsername by vm.username.collectAsState()
     val currentShowId by vm.selectedShowId.collectAsState()
     val shows by vm.shows.collectAsState()
+    val showsLoaded by vm.showsLoaded.collectAsState()
+    // Only the real show IDs count: admin.py parks hidden shows as e.g. shows/final_test.
+    val noShowsYet = showsLoaded && SHOW_IDS.none { shows[it]?.isNotEmpty() == true }
     val activeYear by vm.activeYear.collectAsState()
     val members by vm.members.collectAsState()
     val onlineUids by vm.onlineUids.collectAsState()
@@ -804,7 +837,8 @@ fun UsernameShowScreen(
                         lastRoomCode.value = currentRoomCode!!
                         lastOnlineUids.value = onlineUids
                         if (currentUsername != null) lastUsername.value = currentUsername!!
-                        if (currentShowId != null) lastShowId.value = currentShowId
+                        // Unconditional, so a selection the VM drops (show emptied) un-highlights too.
+                        lastShowId.value = currentShowId
                     }
                     if (members.isNotEmpty()) lastMembers.value = members
                 }
@@ -960,7 +994,7 @@ fun UsernameShowScreen(
                 }
 
                 // ── Select show ────────────────────────────────────────────
-                SectionCard(highlighted = (currentShowId ?: lastShowId.value) == null) {
+                SectionCard(highlighted = !noShowsYet && (currentShowId ?: lastShowId.value) == null) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             s.show.uppercase() + (activeYear?.let { " · $it" } ?: ""),
@@ -973,6 +1007,9 @@ fun UsernameShowScreen(
                             showLabel = s::showLabel,
                             onPick = { vm.selectShow(it) }
                         )
+                        if (noShowsYet) {
+                            ShowsComingSoonNote(title = s.showsComingSoon, hint = s.showsComingSoonHint)
+                        }
                     }
                 }
                 } // end JOINED Column

@@ -30,18 +30,16 @@ a{color:var(--gold);text-decoration:none;}
 a:hover{text-decoration:underline;}
 .container{max-width:760px;margin:0 auto;padding:0 32px;}
 
-/* lang switcher */
-.lang-bar{position:fixed;top:16px;left:max(20px,calc(50vw - 348px));z-index:100;display:flex;gap:2px;background:rgba(21,18,29,0.7);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:999px;padding:3px;}
-.lang-btn{border:none;background:none;color:var(--muted);font-family:'Schibsted Grotesk';font-weight:700;font-size:.72rem;letter-spacing:.10em;padding:5px 12px;border-radius:999px;cursor:pointer;transition:all .15s;}
-.lang-btn.active{background:var(--gold);color:#1a1206;}
-.lang-btn:not(.active):hover{color:var(--text);}
 
 /* intro */
 .intro{padding:36px 0 40px;display:grid;grid-template-columns:1fr auto;gap:56px;align-items:center;}
-.intro-banner{display:block;width:400px;height:65px;object-fit:cover;margin:0 0 20px -10px;}
+.intro-banner{display:block;width:400px;height:65px;object-fit:cover;margin:0 0 20px -10px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
 .intro-text p{font-size:1.08rem;color:var(--muted);max-width:520px;margin-bottom:12px;}
 .intro-text p b{color:var(--text);font-weight:600;}
-.btn-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:24px;}
+/* Download spans the full row; the two outlined buttons share the row below it equally. */
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:380px;margin-top:24px;}
+.btn-row a{justify-content:center;text-align:center;padding-left:16px;padding-right:16px;}
+.btn-row .dl-btn{grid-column:1 / -1;}
 .dl-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:999px;background:var(--gold);color:#1a1206;font-family:'Schibsted Grotesk';font-weight:700;font-size:.9rem;transition:all .15s;}
 .dl-btn:hover{background:#ffd96b;text-decoration:none;transform:translateY(-1px);}
 .gh-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:999px;background:transparent;color:var(--text);border:1.5px solid var(--line);font-family:'Schibsted Grotesk';font-weight:700;font-size:.9rem;transition:all .15s;}
@@ -82,16 +80,11 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
   .intro{grid-template-columns:1fr;gap:36px;}
   .phone{width:190px;justify-self:center;}
   .intro-banner{width:340px;height:auto;margin-top:10px;}
-  .lang-bar{left:auto;right:16px;}
 }
 </style>
 </head>
 <body>
 
-<div class="lang-bar">
-  <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
-  <button class="lang-btn" id="btn-fi" onclick="setLang('fi')">FI</button>
-</div>
 
 <main>
   <div class="container">
@@ -103,6 +96,7 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
         <p data-t="tagline"></p>
         <div class="btn-row">
           <a class="dl-btn" href="https://github.com/github-0/est/releases/latest/download/app-release.apk" data-t="dl"></a>
+          <a class="gh-btn" href="app/" data-t="web"></a>
           <a class="gh-btn" href="https://github.com/github-0/est">GitHub ↗</a>
         </div>
       </div>
@@ -148,6 +142,7 @@ const i18n = {
     'desc-bold': 'scoring Eurovision entries in real time',
     'desc-rest': 'with your group, from the same couch or remotely. Scores sync between all devices. Guess the winners and see post-show analytics.',
     'tagline': 'No accounts, no ads.',
+    'web': 'Web version',
     'dl': '↓\u2002Download APK',
     'feat-head': 'Features',
     'tech-head': 'Technical',
@@ -171,6 +166,7 @@ const i18n = {
     'desc-bold': 'Euroviisu-esitysten pisteytykseen reaaliajassa',
     'desc-rest': 'ryhmäsi kesken, samalta sohvalta tai etänä. Pisteet synkronoituvat kaikkien laitteiden välillä. Arvaa voittajat ja katso finaalin jälkeinen analytiikka.',
     'tagline': 'Ei rekisteröintejä, ei mainoksia.',
+    'web': 'Selainversio',
     'dl': '↓\u2002Lataa APK',
     'feat-head': 'Ominaisuudet',
     'tech-head': 'Tekniset tiedot',
@@ -191,6 +187,8 @@ const i18n = {
   }
 };
 
+let currentLang = 'en';
+
 function setLang(lang) {
   const t = i18n[lang];
   document.querySelectorAll('[data-t]').forEach(el => {
@@ -203,9 +201,7 @@ function setLang(lang) {
   // tech list
   const tl = document.getElementById('tech-list');
   tl.innerHTML = t.techs.map(s => `<li><span>${s}</span></li>`).join('');
-  // toggle buttons
-  document.getElementById('btn-en').classList.toggle('active', lang === 'en');
-  document.getElementById('btn-fi').classList.toggle('active', lang === 'fi');
+  currentLang = lang;
   document.documentElement.lang = lang;
   localStorage.setItem('lang', lang);
   document.querySelectorAll('#slider-track [data-screen]').forEach(img => {
@@ -219,6 +215,22 @@ const stored = localStorage.getItem('lang');
 const browser = navigator.language.slice(0,2).toLowerCase();
 const initial = stored || (['fi'].includes(browser) ? browser : 'en');
 setLang(initial);
+
+// Double-tapping the logo switches between EN and FI. Counted by hand because a double tap
+// doesn't fire dblclick in every mobile browser.
+(function(){
+  const banner = document.querySelector('.intro-banner');
+  let lastTap = 0;
+  banner.addEventListener('click', () => {
+    const now = Date.now();
+    if (now - lastTap < 350) {
+      lastTap = 0;
+      setLang(currentLang === 'en' ? 'fi' : 'en');
+    } else {
+      lastTap = now;
+    }
+  });
+})();
 
 // Screenshot carousel
 (function(){

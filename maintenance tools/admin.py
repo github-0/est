@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -23,6 +24,47 @@ PARTICIPANTS_FILE   = Path(__file__).parent / "participants.json"
 RESULTS_FILE        = Path(__file__).parent / "results.json"
 
 _TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$")
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# Test mode (the default) maps the top-level collections to their test copies
+# (rooms → test_rooms, …), the same ones the app's test-database mode uses. Code
+# keeps writing production paths ("rooms/ABC123"); _encode_path() applies the
+# mapping, so every request goes to the active environment. Backup, restore and
+# the production → test copy work on the whole database inside _whole_database().
+_ENV_COLLECTIONS = ("rooms", "shows", "results")
+_TEST_PREFIX     = "test_"
+_production      = False
+_env_scoping     = True
+
+
+def _env_path(path):
+    if _production or not _env_scoping:
+        return path
+    head, sep, rest = path.partition("/")
+    if head in _ENV_COLLECTIONS:
+        return f"{_TEST_PREFIX}{head}{sep}{rest}"
+    return path
+
+
+@contextmanager
+def _whole_database():
+    """Use real paths (no test mapping) inside the block."""
+    global _env_scoping
+    _env_scoping = False
+    try:
+        yield
+    finally:
+        _env_scoping = True
+
+
+def _production_tag():
+    tag = "*** PRODUCTION ***"
+    return f"\033[1;97;41m {tag} \033[0m" if sys.stdout.isatty() else tag
+
+
+def print_menu_title(title):
+    """Menu heading; in production mode it carries a PRODUCTION tag on every menu."""
+    print(f"\n{_production_tag()}  {title}" if _production else f"\n{title}")
 
 _DEMO_ROOM_CODE = "DEMO01"
 _DEMO_SHOW_ID   = "final"
@@ -185,9 +227,10 @@ def _encode_path(path):
     """Percent-encode each segment of a Firestore document/collection path.
 
     Doc IDs can contain non-ASCII characters (e.g. usernames with accented
-    letters), which urllib refuses to send unencoded.
+    letters), which urllib refuses to send unencoded. Also maps the path to the
+    active environment (see _env_path).
     """
-    return "/".join(urllib.parse.quote(seg, safe="") for seg in path.split("/"))
+    return "/".join(urllib.parse.quote(seg, safe="") for seg in _env_path(path).split("/"))
 
 
 def patch(token, path, fields):
@@ -637,6 +680,58 @@ def do_restore(token):
     print(f"\nWritten: {counters['written']} document(s) across {len(all_cols)} collection(s).")
 
 
+# ── Production → test copy ────────────────────────────────────────────────────
+# Call these inside _whole_database(): they take real paths.
+
+def _doc_id(doc):
+    return doc["name"].rsplit("/", 1)[-1]
+
+
+def _copy_collection(token, src, dst):
+    """Copy every document under src (recursively) to the same IDs under dst. Returns the count."""
+    copied = 0
+    for doc in list_collection(token, src):
+        doc_id = _doc_id(doc)
+        # showMissing lists implicit parents (no createTime): nothing to write, but recurse.
+        if "createTime" in doc:
+            patch_raw(token, f"{dst}/{doc_id}", doc.get("fields", {}))
+            copied += 1
+        for sub in list_collection_ids(token, f"{src}/{doc_id}"):
+            copied += _copy_collection(token, f"{src}/{doc_id}/{sub}", f"{dst}/{doc_id}/{sub}")
+    return copied
+
+
+def _delete_collection(token, path):
+    """Delete every document under path (recursively). Returns the count."""
+    deleted = 0
+    for doc in list_collection(token, path):
+        doc_id = _doc_id(doc)
+        for sub in list_collection_ids(token, f"{path}/{doc_id}"):
+            deleted += _delete_collection(token, f"{path}/{doc_id}/{sub}")
+        if "createTime" in doc:
+            delete_doc(token, f"{path}/{doc_id}")
+            deleted += 1
+    return deleted
+
+
+def do_copy_production_to_test(token):
+    names = ", ".join(_ENV_COLLECTIONS)
+    print(f"\nCopy production ({names}) to test ({', '.join(_TEST_PREFIX + n for n in _ENV_COLLECTIONS)}).")
+    print("Documents that already exist in test are overwritten.")
+    wipe = confirm("Delete all existing test data first? Press Y to delete (anything else keeps it): ")
+    if not confirm():
+        return
+    with _whole_database():
+        if wipe:
+            for name in _ENV_COLLECTIONS:
+                print(f"  Deleting {_TEST_PREFIX}{name}...", end=" ", flush=True)
+                print(f"{_delete_collection(token, _TEST_PREFIX + name)} document(s)")
+        for name in _ENV_COLLECTIONS:
+            print(f"  Copying {name} → {_TEST_PREFIX}{name}...", end=" ", flush=True)
+            print(f"{_copy_collection(token, name, _TEST_PREFIX + name)} document(s)")
+    print("Done.")
+
+
 # ── Upload / demo room ────────────────────────────────────────────────────────
 
 def do_upload_participants(token):
@@ -751,9 +846,12 @@ def do_create_demo_room(token):
 
 # ── Rename / restore shows and results ───────────────────────────────────────
 
-def do_rename_shows_final(token):
-    print("Reading shows/final...", end=" ", flush=True)
-    doc = get_doc(token, "shows/final")
+SHOW_IDS = ["semi1", "semi2", "final"]
+
+
+def _move_show_doc(token, src, dst):
+    print(f"Reading shows/{src}...", end=" ", flush=True)
+    doc = get_doc(token, f"shows/{src}")
     if doc is None:
         print("not found.")
         return
@@ -761,33 +859,24 @@ def do_rename_shows_final(token):
     participants = fields.get("participants", {}).get("arrayValue", {}).get("values", [])
     print(f"OK ({len(participants)} participant(s))")
 
-    print("Writing shows/final_test...", end=" ", flush=True)
-    status = patch_raw(token, "shows/final_test", fields)
+    print(f"Writing shows/{dst}...", end=" ", flush=True)
+    status = patch_raw(token, f"shows/{dst}", fields)
     print(f"HTTP {status}")
 
-    print("Deleting shows/final...", end=" ", flush=True)
-    status = delete_doc(token, "shows/final")
+    print(f"Deleting shows/{src}...", end=" ", flush=True)
+    status = delete_doc(token, f"shows/{src}")
     print(f"HTTP {status}")
+
+
+def do_rename_shows(token, show_ids):
+    for show_id in show_ids:
+        _move_show_doc(token, show_id, f"{show_id}_test")
     print("Done.")
 
 
-def do_restore_shows_final_test(token):
-    print("Reading shows/final_test...", end=" ", flush=True)
-    doc = get_doc(token, "shows/final_test")
-    if doc is None:
-        print("not found.")
-        return
-    fields       = doc.get("fields", {})
-    participants = fields.get("participants", {}).get("arrayValue", {}).get("values", [])
-    print(f"OK ({len(participants)} participant(s))")
-
-    print("Writing shows/final...", end=" ", flush=True)
-    status = patch_raw(token, "shows/final", fields)
-    print(f"HTTP {status}")
-
-    print("Deleting shows/final_test...", end=" ", flush=True)
-    status = delete_doc(token, "shows/final_test")
-    print(f"HTTP {status}")
+def do_restore_shows(token, show_ids):
+    for show_id in show_ids:
+        _move_show_doc(token, f"{show_id}_test", show_id)
     print("Done.")
 
 
@@ -905,8 +994,24 @@ def _delete_auth_user(token, uid):
         return False
 
 
+def _last_active_ms(user):
+    """Latest activity of an Auth user in epoch ms, or None.
+
+    Anonymous users sign in only once (lastLoginAt stays at createdAt); after that the client
+    just refreshes its token, which only lastRefreshAt records (RFC 3339, e.g.
+    "2026-10-08T20:13:39.594605Z", with a varying number of fraction digits)."""
+    times = [int(user[k]) for k in ("createdAt", "lastLoginAt") if user.get(k)]
+    refresh = user.get("lastRefreshAt")
+    if refresh:
+        m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$", refresh)
+        if m:
+            dt = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            times.append(int(dt.timestamp() * 1000))
+    return max(times) if times else None
+
+
 def purge_stale_auth_users(token, days=90):
-    """Delete anonymous Firebase Auth users with no sign-in activity in the last `days` days."""
+    """Delete anonymous Firebase Auth users with no activity (sign-in or token refresh) in the last `days` days."""
     cutoff    = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_ms = cutoff.timestamp() * 1000
 
@@ -917,9 +1022,9 @@ def purge_stale_auth_users(token, days=90):
         total += 1
         if user.get("providerUserInfo"):
             continue  # not anonymous
-        last_ms = user.get("lastLoginAt") or user.get("createdAt")
-        if last_ms is None or int(last_ms) < cutoff_ms:
-            stale.append((user["localId"], int(last_ms) if last_ms else None))
+        last_ms = _last_active_ms(user)
+        if last_ms is None or last_ms < cutoff_ms:
+            stale.append((user["localId"], last_ms))
 
     print(f"Scanned {total} user(s). Found {len(stale)} stale anonymous user(s).")
     if not stale:
@@ -929,7 +1034,7 @@ def purge_stale_auth_users(token, days=90):
     print(f"\nSample (first {show_n}):")
     for uid, ts_ms in stale[:show_n]:
         last = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d") if ts_ms else "unknown"
-        print(f"  {uid}  (last sign-in: {last})")
+        print(f"  {uid}  (last active: {last})")
     if len(stale) > show_n:
         print(f"  ... and {len(stale) - show_n} more")
 
@@ -952,11 +1057,13 @@ def purge_stale_auth_users(token, days=90):
 
 def menu_rename_restore(token):
     while True:
-        print("\nRename / restore shows and results")
+        print_menu_title("Rename / restore shows and results")
         print("  1) Rename  shows/final        →  shows/final_test")
         print("  2) Restore shows/final_test   →  shows/final")
         print("  3) Rename  results/final       →  results/final_test")
         print("  4) Restore results/final_test  →  results/final")
+        print("  5) Rename  all shows          →  shows/<id>_test")
+        print("  6) Restore all shows          ←  shows/<id>_test")
         print("\n  Enter = Back")
         choice = _input_safe("\nChoice: ").strip()
         if not choice:
@@ -964,11 +1071,11 @@ def menu_rename_restore(token):
         elif choice == "1":
             print("\nRename shows/final → shows/final_test")
             if confirm():
-                do_rename_shows_final(token)
+                do_rename_shows(token, ["final"])
         elif choice == "2":
             print("\nRestore shows/final_test → shows/final")
             if confirm():
-                do_restore_shows_final_test(token)
+                do_restore_shows(token, ["final"])
         elif choice == "3":
             print("\nRename results/final → results/final_test")
             if confirm():
@@ -977,26 +1084,38 @@ def menu_rename_restore(token):
             print("\nRestore results/final_test → results/final")
             if confirm():
                 do_restore_results_final_test(token)
+        elif choice == "5":
+            print(f"\nRename all shows ({', '.join(SHOW_IDS)}) → shows/<id>_test")
+            print("The app then shows no selectable show (\"coming soon\").")
+            if confirm():
+                do_rename_shows(token, SHOW_IDS)
+        elif choice == "6":
+            print(f"\nRestore all shows: shows/<id>_test → shows/<id> ({', '.join(SHOW_IDS)})")
+            if confirm():
+                do_restore_shows(token, SHOW_IDS)
 
 
 def menu_database(token):
     while True:
-        print("\nDatabase maintenance")
-        print("  1) Backup Firestore")
-        print("  2) Restore Firestore from backup")
+        print_menu_title("Database maintenance")
+        print("  1) Backup Firestore (whole database, production and test)")
+        print("  2) Restore Firestore from backup (whole database)")
         print("  3) Upload participants")
         print("  4) Upload results")
         print(f"  5) Create demo room ({_DEMO_ROOM_CODE})")
         print("  6) Rename / restore shows and results")
         print("  7) Purge stale anonymous Auth users (90+ days)")
+        print("  8) Copy production data to test")
         print("\n  Enter = Back")
         choice = _input_safe("\nChoice: ").strip()
         if not choice:
             return
         elif choice == "1":
-            do_backup(token)
+            with _whole_database():
+                do_backup(token)
         elif choice == "2":
-            do_restore(token)
+            with _whole_database():
+                do_restore(token)
         elif choice == "3":
             do_upload_participants(token)
         elif choice == "4":
@@ -1009,6 +1128,8 @@ def menu_database(token):
             menu_rename_restore(token)
         elif choice == "7":
             purge_stale_auth_users(token)
+        elif choice == "8":
+            do_copy_production_to_test(token)
 
 
 def _menu_room_manage(token):
@@ -1034,7 +1155,7 @@ def _menu_room_manage(token):
             else:
                 print("Members: (none)")
 
-        print(f"\nRoom: {room_code}")
+        print_menu_title(f"Room: {room_code}")
         print(f"Created:       {created}")
         print(f"Last activity: {last_act}")
         _print_members()
@@ -1077,7 +1198,7 @@ def _menu_room_manage(token):
 
 def menu_room(token):
     while True:
-        print("\nRoom maintenance")
+        print_menu_title("Room maintenance")
         print("  1) Manage a room")
         print("  2) Purge stale rooms (90+ days)")
         print("\n  Enter = Back")
@@ -1098,14 +1219,19 @@ def main():
             "Service accounts → Generate new private key"
         )
 
+    global _production
+
     print("Authenticating...", end=" ", flush=True)
     token = get_token()
-    print("OK\n")
+    print("OK")
 
     while True:
-        print("Main menu")
+        print_menu_title("Main menu")
+        if not _production:
+            print(f"  (test database: {', '.join(_TEST_PREFIX + n for n in _ENV_COLLECTIONS)})")
         print("  1) Room maintenance")
         print("  2) Database maintenance")
+        print(f"  3) Switch to {'test' if _production else 'PRODUCTION'}")
         print("\n  Enter = Quit")
         choice = _input_safe("\nChoice: ").strip()
         if not choice:
@@ -1115,7 +1241,12 @@ def main():
             menu_room(token)
         elif choice == "2":
             menu_database(token)
-        print()
+        elif choice == "3":
+            if _production:
+                _production = False
+            else:
+                print("\nEverything after this reads and writes the live data the app's users see.")
+                _production = confirm("Press Y to switch to PRODUCTION (anything else cancels): ")
 
 
 if __name__ == "__main__":

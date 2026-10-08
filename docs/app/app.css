@@ -41,11 +41,13 @@ a{color:var(--primary);}
   max-width:760px;margin:0 auto;padding:14px 16px 6px;
   display:flex;align-items:center;justify-content:space-between;gap:12px;
 }
-.banner-link{display:block;min-width:0;}
+.banner-wrap{min-width:0;user-select:none;-webkit-user-select:none;}
 .banner{display:block;width:min(300px,58vw);aspect-ratio:400/65;object-fit:cover;margin-left:-8px;}
 .lang-bar{display:flex;gap:2px;border:1px solid var(--outline-var);border-radius:999px;padding:3px;flex-shrink:0;}
 .lang-btn{border:none;background:none;color:var(--muted);font-weight:800;font-size:.72rem;letter-spacing:.1em;padding:5px 12px;border-radius:999px;}
 .lang-btn.active{background:var(--primary);color:#fff;}
+/* Shown while on the test database, like the app's "TEST" tag on the nav bar. */
+.test-tag{background:var(--error);color:#fff;font-weight:800;font-size:.65rem;letter-spacing:.15em;padding:2px 10px;border-radius:999px;flex-shrink:0;}
 
 main{max-width:760px;margin:0 auto;padding:8px 16px 48px;display:flex;flex-direction:column;gap:14px;}
 .status{text-align:center;color:var(--muted);padding:48px 16px;}

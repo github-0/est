@@ -17,9 +17,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 
-class FirestoreRepository {
+/**
+ * [testMode] points every read and write at the test copies of the top-level collections
+ * (`test_rooms`, `test_shows`, `test_results`). Sub-collections hang off those, so [col] is
+ * the only place that needs to know. The mode is fixed for the process lifetime: switching
+ * it in the Maintenance screen restarts the app.
+ */
+class FirestoreRepository(testMode: Boolean = false) {
     private val db = Firebase.firestore
     private val auth = Firebase.auth
+    private val collectionPrefix = if (testMode) "test_" else ""
+
+    // Top-level collection in the active environment. Never call db.collection() directly.
+    private fun col(name: String) = db.collection(collectionPrefix + name)
 
     suspend fun signInAnonymously() {
         if (auth.currentUser == null) {
@@ -40,7 +50,7 @@ class FirestoreRepository {
 
     // Shows are global read-only data; structure unchanged from original.
     fun getShows(): Flow<Map<String, List<Participant>>> = callbackFlow {
-        val listener = db.collection("shows")
+        val listener = col("shows")
             .addSnapshotListener { snapshot, _ ->
                 val result = mutableMapOf<String, List<Participant>>()
                 snapshot?.documents?.forEach { doc ->
@@ -63,7 +73,7 @@ class FirestoreRepository {
     // The year admin.py writes onto each show document (the latest one if they disagree);
     // null when no show has a year yet.
     fun watchShowsYear(): Flow<Int?> = callbackFlow {
-        val listener = db.collection("shows")
+        val listener = col("shows")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null) return@addSnapshotListener
                 trySend(snapshot.documents.mapNotNull { it.getLong("year")?.toInt() }.maxOrNull())
@@ -72,7 +82,7 @@ class FirestoreRepository {
     }
 
     fun observeFirestoreConnectivity(): Flow<Boolean?> = callbackFlow {
-        val listener = db.collection("shows")
+        val listener = col("shows")
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, _ ->
                 if (snapshot != null) trySend(!snapshot.metadata.isFromCache)
             }
@@ -109,7 +119,7 @@ class FirestoreRepository {
                 )
             }
 
-        val entriesListener = db.collection("results").document(showId)
+        val entriesListener = col("results").document(showId)
             .collection("entries")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null) return@addSnapshotListener
@@ -117,7 +127,7 @@ class FirestoreRepository {
                 tryEmit()
             }
 
-        val docListener = db.collection("results").document(showId)
+        val docListener = col("results").document(showId)
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null || !snapshot.exists()) {
                     cachedYear = null
@@ -150,7 +160,7 @@ class FirestoreRepository {
         repeat(5) {
             if (roomCode != null) return@repeat
             val candidate = generateRoomCode()
-            val roomRef = db.collection("rooms").document(candidate)
+            val roomRef = col("rooms").document(candidate)
             try {
                 db.runTransaction { tx ->
                     if (tx.get(roomRef).exists()) throw Exception("collision")
@@ -180,7 +190,7 @@ class FirestoreRepository {
 
     suspend fun joinRoom(roomCode: String, username: String): Result<Unit> = try {
         val uid = getUid()
-        val roomRef = db.collection("rooms").document(roomCode)
+        val roomRef = col("rooms").document(roomCode)
         if (!roomRef.get().await().exists()) throw Exception("Room not found")
         val usernameRef = roomRef.collection("usernames").document(username.lowercase())
         val memberRef = roomRef.collection("members").document(uid)
@@ -201,10 +211,10 @@ class FirestoreRepository {
     // Returns the room's current lastActivityAt so the caller can decide whether to update it.
     suspend fun verifyMembership(roomCode: String): Result<Timestamp?> = try {
         val uid = getUid()
-        val memberDoc = db.collection("rooms").document(roomCode)
+        val memberDoc = col("rooms").document(roomCode)
             .collection("members").document(uid).get().await()
         if (!memberDoc.exists()) throw Exception("Not a member of room $roomCode")
-        val lastActivity = db.collection("rooms").document(roomCode)
+        val lastActivity = col("rooms").document(roomCode)
             .get().await().getTimestamp("lastActivityAt")
         Result.success(lastActivity)
     } catch (e: Exception) {
@@ -216,13 +226,13 @@ class FirestoreRepository {
         if (currentLastActivityAt != null &&
             currentLastActivityAt.seconds > twentyFourHoursAgo.seconds) return
         try {
-            db.collection("rooms").document(roomCode)
+            col("rooms").document(roomCode)
                 .update("lastActivityAt", Timestamp.now()).await()
         } catch (_: Exception) { /* best-effort */ }
     }
 
     fun getMembers(roomCode: String): Flow<Map<String, String>> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .collection("members")
             .addSnapshotListener { snapshot, _ ->
                 val result = snapshot?.documents?.associate { doc ->
@@ -240,7 +250,7 @@ class FirestoreRepository {
     // Emits {uid: lastSeenAt in epoch millis}. ESTIMATE fills in our own pending
     // server timestamp so it isn't null until the write is acknowledged.
     fun getPresence(roomCode: String): Flow<Map<String, Long>> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .collection("presence")
             .addSnapshotListener { snapshot, _ ->
                 val result = snapshot?.documents?.mapNotNull { doc ->
@@ -257,20 +267,20 @@ class FirestoreRepository {
     // the heartbeat loop while offline. Failures (e.g. removed from the room) are ignored.
     fun sendPresenceHeartbeat(roomCode: String) {
         val uid = try { getUid() } catch (_: Exception) { return }
-        db.collection("rooms").document(roomCode)
+        col("rooms").document(roomCode)
             .collection("presence").document(uid)
             .set(mapOf("lastSeenAt" to FieldValue.serverTimestamp()))
     }
 
     fun clearPresence(roomCode: String) {
         val uid = try { getUid() } catch (_: Exception) { return }
-        db.collection("rooms").document(roomCode)
+        col("rooms").document(roomCode)
             .collection("presence").document(uid)
             .delete()
     }
 
     fun getCreatorUid(roomCode: String): Flow<String?> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .addSnapshotListener { snapshot, _ ->
                 trySend(snapshot?.getString("creatorUid"))
             }
@@ -280,7 +290,7 @@ class FirestoreRepository {
     private val SHOW_IDS = listOf("semi1", "semi2", "final")
 
     suspend fun removeMember(roomCode: String, uidToRemove: String, usernameToRemove: String): Result<Unit> = try {
-        val roomRef = db.collection("rooms").document(roomCode)
+        val roomRef = col("rooms").document(roomCode)
         val batch = db.batch()
 
         batch.delete(roomRef.collection("members").document(uidToRemove))
@@ -314,7 +324,7 @@ class FirestoreRepository {
 
     suspend fun renameUser(roomCode: String, newUsername: String): Result<Unit> = try {
         val uid = getUid()
-        val roomRef = db.collection("rooms").document(roomCode)
+        val roomRef = col("rooms").document(roomCode)
         val memberRef = roomRef.collection("members").document(uid)
         val oldUsername = memberRef.get().await().getString("username") ?: ""
         val newUsernameRef = roomRef.collection("usernames").document(newUsername.lowercase())
@@ -335,7 +345,7 @@ class FirestoreRepository {
     // -------------------------------------------------------------------------
 
     fun getVotes(roomCode: String, showId: String): Flow<Map<Int, Map<String, Int>>> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .collection("votes").document(showId).collection("entries")
             .addSnapshotListener { snapshot, _ ->
                 val result = mutableMapOf<Int, Map<String, Int>>()
@@ -352,7 +362,7 @@ class FirestoreRepository {
     }
 
     suspend fun submitVote(roomCode: String, showId: String, order: Int, uid: String, points: Int) {
-        db.collection("rooms").document(roomCode)
+        col("rooms").document(roomCode)
             .collection("votes").document(showId)
             .collection("entries").document(order.toString())
             .set(mapOf(uid to points), SetOptions.merge())
@@ -364,7 +374,7 @@ class FirestoreRepository {
     // -------------------------------------------------------------------------
 
     fun getGuesses(roomCode: String, showId: String): Flow<Map<String, Map<Int, Int>>> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .collection("guesses").document(showId).collection("picks")
             .addSnapshotListener { snapshot, _ ->
                 val result = mutableMapOf<String, Map<Int, Int>>()
@@ -385,7 +395,7 @@ class FirestoreRepository {
     // Replaces the user's whole pick map in one write (no merge), so moving a country between
     // ranks can never leave it in two ranks at once.
     suspend fun setGuesses(roomCode: String, showId: String, uid: String, picks: Map<Int, Int>) {
-        db.collection("rooms").document(roomCode)
+        col("rooms").document(roomCode)
             .collection("guesses").document(showId)
             .collection("picks").document(uid)
             .set(picks.mapKeys { (rank, _) -> rank.toString() })
@@ -397,7 +407,7 @@ class FirestoreRepository {
     // -------------------------------------------------------------------------
 
     fun getComments(roomCode: String, showId: String): Flow<Map<Int, Map<String, String>>> = callbackFlow {
-        val listener = db.collection("rooms").document(roomCode)
+        val listener = col("rooms").document(roomCode)
             .collection("comments").document(showId).collection("entries")
             .addSnapshotListener { snapshot, _ ->
                 val result = mutableMapOf<Int, Map<String, String>>()
@@ -415,7 +425,7 @@ class FirestoreRepository {
 
     // An empty [text] deletes the caller's comment for this entry instead of storing it.
     suspend fun submitComment(roomCode: String, showId: String, order: Int, uid: String, text: String) {
-        val ref = db.collection("rooms").document(roomCode)
+        val ref = col("rooms").document(roomCode)
             .collection("comments").document(showId)
             .collection("entries").document(order.toString())
         if (text.isEmpty()) {

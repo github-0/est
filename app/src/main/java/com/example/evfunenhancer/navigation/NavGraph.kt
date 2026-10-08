@@ -164,7 +164,7 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
                         )
                     )
                 }
-                TicketNavBar(items = items)
+                TicketNavBar(items = items, testMode = vm.testMode)
             }
         ) { padding ->
             NavHost(

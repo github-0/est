@@ -2,16 +2,33 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ------------------------------------------------------------------
+    // Production and test environments
+    // Every top-level collection has a test copy with a "test_" prefix
+    // (test_rooms, test_shows, test_results), used by the app's test-database
+    // mode and admin.py's default mode. Both get identical rules: each
+    // top-level match below is a wildcard limited to the two allowed names,
+    // so the wildcard (rooms / shows / results) is part of every check.
+    // ------------------------------------------------------------------
+    function isRooms(coll)   { return coll in ['rooms', 'test_rooms']; }
+    function isShows(coll)   { return coll in ['shows', 'test_shows']; }
+    function isResults(coll) { return coll in ['results', 'test_results']; }
+
     // Caller has a valid Firebase auth token (anonymous sign-in completed).
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    // Authenticated, and the matched top-level collection really is a rooms collection.
+    function inRooms(rooms) {
+      return isRooms(rooms) && isAuthenticated();
+    }
+
     // Caller is a member of the given room. Used to gate most room reads/writes;
     // not used for member document creation itself (that would be circular on join).
-    function isMember(roomCode) {
-      return isAuthenticated()
-        && exists(/databases/$(database)/documents/rooms/$(roomCode)/members/$(request.auth.uid));
+    function isMember(rooms, roomCode) {
+      return inRooms(rooms)
+        && exists(/databases/$(database)/documents/$(rooms)/$(roomCode)/members/$(request.auth.uid));
     }
 
     // Username: 1–2 alphanumeric characters (A–Z, a–z, 0–9, Ä, Ö, Å and lowercase).
@@ -44,39 +61,41 @@ service cloud.firestore {
     // Caller is the creator of the given room (stored as creatorUid on the room doc).
     // Old rooms without creatorUid won't match — .get() returns the default null,
     // which will never equal a real UID.
-    function isRoomCreator(roomCode) {
-      return isAuthenticated()
-        && get(/databases/$(database)/documents/rooms/$(roomCode)).data
+    function isRoomCreator(rooms, roomCode) {
+      return inRooms(rooms)
+        && get(/databases/$(database)/documents/$(rooms)/$(roomCode)).data
              .get('creatorUid', null) == request.auth.uid;
     }
 
     // ------------------------------------------------------------------
-    // Global: show participant lists
+    // Global: show participant lists (shows / test_shows)
     // Read-only to clients; only writable via Admin SDK (maintenance scripts).
     // ------------------------------------------------------------------
-    match /shows/{showId} {
-      allow read: if isAuthenticated();
+    match /{shows}/{showId} {
+      allow read: if isShows(shows) && isAuthenticated();
       allow write: if false;
     }
 
     // ------------------------------------------------------------------
-    // Global: official results
+    // Global: official results (results / test_results)
     // Read-only to clients; only writable via Admin SDK (maintenance scripts).
     // ------------------------------------------------------------------
-    match /results/{showId} {
-      allow read: if isAuthenticated();
+    match /{results}/{showId} {
+      allow read: if isResults(results) && isAuthenticated();
       allow write: if false;
 
       match /entries/{order} {
-        allow read: if isAuthenticated();
+        allow read: if isResults(results) && isAuthenticated();
         allow write: if false;
       }
     }
 
     // ------------------------------------------------------------------
-    // Room metadata
+    // Room metadata (rooms / test_rooms)
+    // Every rule in this block must go through inRooms(), isMember() or
+    // isRoomCreator(): the wildcard also matches the other top-level collections.
     // ------------------------------------------------------------------
-    match /rooms/{roomCode} {
+    match /{rooms}/{roomCode} {
 
       // Any authenticated user may get a room document by its code: the join flow
       // must be able to verify a room code before the user is a member. Room
@@ -84,17 +103,17 @@ service cloud.firestore {
       // Listing is denied: room codes are the only thing keeping rooms private,
       // so the collection must never be enumerable. The app only ever accesses
       // rooms by document ID; admin.py uses a service account and bypasses rules.
-      allow get: if isAuthenticated();
+      allow get: if inRooms(rooms);
       allow list: if false;
 
       // Any authenticated user may create a room (host flow).
       // creatorUid is optional so old clients still work; when present it must equal the caller.
-      allow create: if isAuthenticated()
+      allow create: if inRooms(rooms)
         && request.resource.data.keys().hasOnly(['createdAt', 'lastActivityAt', 'creatorUid'])
         && request.resource.data.get('creatorUid', request.auth.uid) == request.auth.uid;
 
       // Members may update lastActivityAt only (for cleanup age tracking).
-      allow update: if isMember(roomCode)
+      allow update: if isMember(rooms, roomCode)
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['lastActivityAt']);
 
@@ -111,22 +130,22 @@ service cloud.firestore {
         // A user may also read their own member document even before they are a member —
         // the joinRoom transaction reads it to preserve joinedAt on re-join, and isMember()
         // would be false at that point (same reasoning as the create/update rules below).
-        allow read: if isMember(roomCode)
-          || (isAuthenticated() && uid == request.auth.uid);
+        allow read: if isMember(rooms, roomCode)
+          || (inRooms(rooms) && uid == request.auth.uid);
 
         // A user may only create or update their own member document.
-        // Uses isAuthenticated() (not isMember()) because the document does not
+        // Uses inRooms() (not isMember()) because the document does not
         // exist yet at the moment of creation — isMember() would always be false.
-        allow create: if isAuthenticated() && uid == request.auth.uid
+        allow create: if inRooms(rooms) && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['username', 'joinedAt'])
           && isValidUsername(request.resource.data.username);
 
-        allow update: if isAuthenticated() && uid == request.auth.uid
+        allow update: if inRooms(rooms) && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['username', 'joinedAt'])
           && isValidUsername(request.resource.data.username);
 
         // Room creator may delete any other member's document.
-        allow delete: if isRoomCreator(roomCode) && uid != request.auth.uid;
+        allow delete: if isRoomCreator(rooms, roomCode) && uid != request.auth.uid;
       }
 
 
@@ -135,16 +154,16 @@ service cloud.firestore {
       // last heartbeat (sent every couple of minutes while the app is open)
       // ----------------------------------------------------------------
       match /presence/{uid} {
-        allow read: if isMember(roomCode);
+        allow read: if isMember(rooms, roomCode);
 
         // Own doc only, and lastSeenAt must be the server's time so it can't be faked.
-        allow create, update: if isMember(roomCode) && uid == request.auth.uid
+        allow create, update: if isMember(rooms, roomCode) && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['lastSeenAt'])
           && request.resource.data.lastSeenAt == request.time;
 
         // Own doc on leaving the room; room creator when purging a member.
-        allow delete: if (isAuthenticated() && uid == request.auth.uid)
-          || isRoomCreator(roomCode);
+        allow delete: if (inRooms(rooms) && uid == request.auth.uid)
+          || isRoomCreator(rooms, roomCode);
       }
 
 
@@ -154,22 +173,22 @@ service cloud.firestore {
       match /usernames/{username} {
         // Must be readable by non-members so the join transaction can check username
         // uniqueness before the caller's member document exists.
-        allow read: if isAuthenticated();
+        allow read: if inRooms(rooms);
 
         // Doc key is the lowercased username — enforce the same 1–2 alphanumeric
         // constraint here so arbitrary keys cannot be injected.
-        allow create: if isAuthenticated()
+        allow create: if inRooms(rooms)
           && username.matches('[a-z0-9äöå]{1,2}')
           && request.resource.data.keys().hasOnly(['uid'])
           && request.resource.data.uid == request.auth.uid;
 
-        allow update: if isAuthenticated() && resource.data.uid == request.auth.uid
+        allow update: if inRooms(rooms) && resource.data.uid == request.auth.uid
           && username.matches('[a-z0-9äöå]{1,2}')
           && request.resource.data.keys().hasOnly(['uid'])
           && request.resource.data.uid == request.auth.uid;
 
-        allow delete: if (isAuthenticated() && resource.data.uid == request.auth.uid)
-          || isRoomCreator(roomCode);
+        allow delete: if (inRooms(rooms) && resource.data.uid == request.auth.uid)
+          || isRoomCreator(rooms, roomCode);
       }
 
 
@@ -177,12 +196,12 @@ service cloud.firestore {
       // Votes
       // ----------------------------------------------------------------
       match /votes/{showId}/entries/{order} {
-        allow read: if isMember(roomCode);
+        allow read: if isMember(rooms, roomCode);
 
         // First vote for this entry (document does not yet exist):
         // only allow if the document being created contains solely the
         // caller's own UID as a field, with a valid point value.
-        allow create: if isMember(roomCode)
+        allow create: if isMember(rooms, roomCode)
           && request.resource.data.keys().hasOnly([request.auth.uid])
           && isValidPoints(request.resource.data[request.auth.uid]);
 
@@ -190,13 +209,13 @@ service cloud.firestore {
         // only allow if the diff touches solely the caller's own UID field,
         // and the new value is a valid point score. This prevents overwriting
         // anyone else's score and blocks out-of-range values.
-        allow update: if isMember(roomCode)
+        allow update: if isMember(rooms, roomCode)
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly([request.auth.uid])
           && isValidPoints(request.resource.data[request.auth.uid]);
 
         // Room creator may remove (but not add or change) fields when purging a member.
-        allow update: if isRoomCreator(roomCode)
+        allow update: if isRoomCreator(rooms, roomCode)
           && request.resource.data.diff(resource.data).addedKeys().size() == 0
           && request.resource.data.diff(resource.data).changedKeys().size() == 0;
 
@@ -208,17 +227,17 @@ service cloud.firestore {
       // Comments (room-scoped, keyed by UID; parallel to votes, all shows)
       // ----------------------------------------------------------------
       match /comments/{showId}/entries/{order} {
-        allow read: if isMember(roomCode);
+        allow read: if isMember(rooms, roomCode);
 
         // First comment for this entry (document does not yet exist):
         // only allow if it contains solely the caller's own UID with valid text.
-        allow create: if isMember(roomCode)
+        allow create: if isMember(rooms, roomCode)
           && request.resource.data.keys().hasOnly([request.auth.uid])
           && isValidComment(request.resource.data[request.auth.uid]);
 
         // Subsequent writes: caller may add, edit, or delete (clear) solely their
         // own UID field. Deleting the field removes the comment.
-        allow update: if isMember(roomCode)
+        allow update: if isMember(rooms, roomCode)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([request.auth.uid])
           && (
                !(request.auth.uid in request.resource.data)
@@ -226,7 +245,7 @@ service cloud.firestore {
              );
 
         // Room creator may remove (but not add or change) fields when purging a member.
-        allow update: if isRoomCreator(roomCode)
+        allow update: if isRoomCreator(rooms, roomCode)
           && request.resource.data.diff(resource.data).addedKeys().size() == 0
           && request.resource.data.diff(resource.data).changedKeys().size() == 0;
 
@@ -238,19 +257,19 @@ service cloud.firestore {
       // Top-3 guesses (final only)
       // ----------------------------------------------------------------
       match /guesses/{showId}/picks/{uid} {
-        allow read: if isMember(roomCode);
+        allow read: if isMember(rooms, roomCode);
 
         // Guesses are written one rank at a time via merge(), so the doc
         // may hold 0–3 entries at any point. isValidGuessDoc() allows any
         // subset of ranks {1,2,3} and rejects out-of-range participant orders.
-        allow create: if isMember(roomCode) && uid == request.auth.uid
+        allow create: if isMember(rooms, roomCode) && uid == request.auth.uid
           && isValidGuessDoc(request.resource.data);
 
-        allow update: if isMember(roomCode) && uid == request.auth.uid
+        allow update: if isMember(rooms, roomCode) && uid == request.auth.uid
           && isValidGuessDoc(request.resource.data);
 
         // Room creator may delete any member's guess doc when purging that member.
-        allow delete: if isRoomCreator(roomCode);
+        allow delete: if isRoomCreator(rooms, roomCode);
       }
     }
   }

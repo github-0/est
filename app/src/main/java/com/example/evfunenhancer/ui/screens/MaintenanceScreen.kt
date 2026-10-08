@@ -1,5 +1,7 @@
 package com.example.evfunenhancer.ui.screens
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -48,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -82,8 +86,30 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
     var resultMessage by remember { mutableStateOf<String?>(null) }
     var resultIsSuccess by remember { mutableStateOf(true) }
 
+    var showSwitchDatabaseDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     LaunchedEffect(Unit) {
         vm.refreshUpdateCheck()
+    }
+
+    if (showSwitchDatabaseDialog) {
+        AlertDialog(
+            onDismissRequest = { showSwitchDatabaseDialog = false },
+            title = {
+                Text(if (vm.testMode) s.maintenanceSwitchToProductionTitle else s.maintenanceSwitchToTestTitle)
+            },
+            text = { Text(s.maintenanceSwitchDatabaseBody) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.saveTestMode(!vm.testMode)
+                    restartApp(context)
+                }) { Text(s.maintenanceSwitchAndRestart) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSwitchDatabaseDialog = false }) { Text(s.cancel) }
+            }
+        )
     }
 
     LaunchedEffect(refreshKey) {
@@ -384,6 +410,26 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(s.maintenanceTestDatabase, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        s.maintenanceTestDatabaseHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = vm.testMode,
+                    onCheckedChange = { showSwitchDatabaseDialog = true }
+                )
+            }
+
             Button(
                 onClick = {
                     resultMessage = null
@@ -411,4 +457,12 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
             Spacer(Modifier.padding(bottom = 16.dp))
         }
     }
+}
+
+// Relaunches the app in a fresh process so the repository, ViewModel and every Firestore
+// listener start over against the newly selected database.
+private fun restartApp(context: Context) {
+    val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+    context.startActivity(Intent.makeRestartActivityTask(launch.component))
+    Runtime.getRuntime().exit(0)
 }

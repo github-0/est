@@ -8,6 +8,8 @@ interface AppStrings {
     val createNewUsername: String
     val usernameAlreadyTaken: String
     val show: String
+    val showsComingSoon: String
+    val showsComingSoonHint: String
     val semiFinal1: String
     val semiFinal2: String
     val final: String
@@ -85,6 +87,12 @@ interface AppStrings {
     val maintenanceAppVersion: String
     val maintenanceSectionStatus: String
     val maintenanceSectionTools: String
+    val maintenanceTestDatabase: String
+    val maintenanceTestDatabaseHint: String
+    val maintenanceSwitchToTestTitle: String
+    val maintenanceSwitchToProductionTitle: String
+    val maintenanceSwitchDatabaseBody: String
+    val maintenanceSwitchAndRestart: String
 
     // Disclaimer
     val disclaimerLabel: String
