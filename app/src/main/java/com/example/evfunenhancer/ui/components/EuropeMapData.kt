@@ -2,6 +2,7 @@ package com.example.evfunenhancer.ui.components
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import com.example.evfunenhancer.utils.canonicalCountry
 
 // Europe outline for the Aftershow points map.
 // Source: Natural Earth 1:50m land, Lambert azimuthal equal-area centred on 15°E 52°N,
@@ -21,7 +22,7 @@ object EuropeMap {
 
     fun isInInset(x: Float, y: Float): Boolean = insetRect.contains(Offset(x, y))
 
-    // Approximate population-weighted centre of each current or past entrant, keyed by the
+    // Approximate population-weighted centre of each current, past or likely entrant, keyed by the
     // English country name used in participants.json. Countries not listed are left off the
     // map and listed in the card's "not shown" note.
     private val countries: Map<String, Offset> = mapOf(
@@ -54,6 +55,7 @@ object EuropeMap {
         "Italy"           to Offset(419.0f, 651.0f),
         "Kosovo"          to Offset(560.4f, 652.3f),
         "Latvia"          to Offset(576.9f, 333.5f),
+        "Lebanon"         to Offset(839.5f, 796.0f),
         "Liechtenstein"   to Offset(381.1f, 553.0f),
         "Lithuania"       to Offset(575.7f, 371.5f),
         "Luxembourg"      to Offset(336.2f, 492.1f),
@@ -76,18 +78,15 @@ object EuropeMap {
         "Spain"           to Offset(149.8f, 669.9f),
         "Sweden"          to Offset(468.4f, 288.3f),
         "Switzerland"     to Offset(358.9f, 556.7f),
+        "Tunisia"         to Offset(375.1f, 789.2f),
         "Turkey"          to Offset(741.0f, 685.0f),
         "Ukraine"         to Offset(691.3f, 485.8f),
         "United Kingdom"  to Offset(240.1f, 409.9f),
     )
 
-    // Other spellings that may appear in participants.json.
-    private val aliases: Map<String, String> = mapOf(
-        "Czech Republic" to "Czechia",
-        "Türkiye"        to "Turkey",
-    )
-
-    fun centreOf(country: String): Offset? = countries[aliases[country] ?: country]
+    // Other spellings ("Türkiye", "Czech Republic", …) resolve through canonicalCountry().
+    // Kazakhstan, a possible debutant, lies east of the frame and stays off the map.
+    fun centreOf(country: String): Offset? = countries[canonicalCountry(country)]
     // One closed ring per entry; coordinates outside the frame are clamped to a margin.
     val landPath: String = listOf(
         "M550,299 559,301 552,307 548,308 545,314 546,309 543,307 542,302 550,299Z",

@@ -78,10 +78,14 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /rooms/{roomCode} {
 
-      // Any authenticated user may read a room document. This is intentionally
-      // broad: the join flow must be able to verify a room code before the user
-      // is a member. Room metadata contains no sensitive data (only timestamps).
-      allow read: if isAuthenticated();
+      // Any authenticated user may get a room document by its code: the join flow
+      // must be able to verify a room code before the user is a member. Room
+      // metadata contains no sensitive data (only timestamps).
+      // Listing is denied: room codes are the only thing keeping rooms private,
+      // so the collection must never be enumerable. The app only ever accesses
+      // rooms by document ID; admin.py uses a service account and bypasses rules.
+      allow get: if isAuthenticated();
+      allow list: if false;
 
       // Any authenticated user may create a room (host flow).
       // creatorUid is optional so old clients still work; when present it must equal the caller.
@@ -123,6 +127,24 @@ service cloud.firestore {
 
         // Room creator may delete any other member's document.
         allow delete: if isRoomCreator(roomCode) && uid != request.auth.uid;
+      }
+
+
+      // ----------------------------------------------------------------
+      // Presence: one doc per member holding the server time of their
+      // last heartbeat (sent every couple of minutes while the app is open)
+      // ----------------------------------------------------------------
+      match /presence/{uid} {
+        allow read: if isMember(roomCode);
+
+        // Own doc only, and lastSeenAt must be the server's time so it can't be faked.
+        allow create, update: if isMember(roomCode) && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['lastSeenAt'])
+          && request.resource.data.lastSeenAt == request.time;
+
+        // Own doc on leaving the room; room creator when purging a member.
+        allow delete: if (isAuthenticated() && uid == request.auth.uid)
+          || isRoomCreator(roomCode);
       }
 
 

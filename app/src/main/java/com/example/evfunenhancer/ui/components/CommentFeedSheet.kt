@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -260,8 +261,11 @@ fun CommentFeedSheet(
                             ExpandedHeaderRow(
                                 pagerState = pagerState,
                                 onTabClick = { t -> scope.launch { pagerState.animateScrollToPage(tabs.indexOf(t)) } },
-                                // Nudged down for a little more room below the grab bar.
+                                // Nudged down for a little more room below the grab bar. Measured at
+                                // its natural height, so a large system font lets it reach into the
+                                // gap below instead of clipping the tab labels.
                                 modifier = Modifier
+                                    .wrapContentHeight(Alignment.Top, unbounded = true)
                                     .offset(y = 4.dp)
                                     .alpha(p * 2f - 1f)
                             )

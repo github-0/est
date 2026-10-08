@@ -1,6 +1,8 @@
 package com.example.evfunenhancer.navigation
 
 import android.widget.Toast
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -93,7 +95,7 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
         AlertDialog(
             onDismissRequest = { if (disclaimerAccepted) showDisclaimerDialog = false },
             title = { Text(strings.disclaimerTitle, style = MaterialTheme.typography.titleLarge) },
-            text = { Text(strings.disclaimerBody) },
+            text = { Text(strings.disclaimerBody, Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = {
                 TextButton(onClick = {
                     vm.acceptDisclaimer()

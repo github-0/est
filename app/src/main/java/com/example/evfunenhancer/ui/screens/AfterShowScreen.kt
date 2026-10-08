@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -158,6 +159,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.example.evfunenhancer.R
 import com.example.evfunenhancer.data.CountryResult
 import com.example.evfunenhancer.data.Participant
+import com.example.evfunenhancer.ui.fontScaled
 import com.example.evfunenhancer.ui.glow
 import com.example.evfunenhancer.ui.components.DEFAULT_HEAT_SPREAD
 import com.example.evfunenhancer.ui.components.EuropeMap
@@ -247,10 +249,10 @@ private val GlowPurple = Color(0xFFA855F7)
 private val GlowPink   = Color(0xFFEC4899)
 private val GlowGold   = Color(0xFFFFD700)
 private val GlowSilver = Color(0xFFB8C0CC)
-private val GlowBronze = Color(0xFFCD7F32)
 private val GlowTeal   = Color(0xFF06B6D4)
 private val GlowOrange = Color(0xFFF97316)
 private val GlowGreen  = Color(0xFF4ADE80)
+private val GlowYellow = Color(0xFFFDE047)
 private val GlowIndigo = Color(0xFF6366F1)
 private val GlowRose   = Color(0xFFF43F5E)
 private val GlowSky    = Color(0xFF38BDF8)
@@ -310,6 +312,14 @@ private fun pickResult(pickRank: Int, pickedOrder: Int, officialTop3ByRank: Map<
         pickedOrder in officialTop3Orders            -> PickResult.CLOSE
         else                                         -> PickResult.MISS
     }
+
+// Background tint behind a correct pick; misses are greyed out instead. Yellow goes olive over the
+// dark card at a light tint, so the top-3 tint is stronger than the exact one.
+private fun pickResultTint(result: PickResult): Color = when (result) {
+    PickResult.EXACT -> GlowGreen.copy(alpha = 0.28f)
+    PickResult.CLOSE -> GlowYellow.copy(alpha = 0.45f)
+    PickResult.MISS  -> Color.Unspecified
+}
 
 private const val CompatibilityMinCommon = 3
 
@@ -1195,68 +1205,34 @@ private fun GuessedWinnersCard(data: AfterShowData, animVersion: Int = -1, sideI
         } else if (data.guessScores.isEmpty()) {
             Text(s.aftershowNoGuesses, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
+            // An answer key: the official podium heads the three medal columns and each member's
+            // pick sits under the medal they gave it.
+            val density    = LocalDensity.current
+            val leadWidth  = with(density) { GuessLeadWidth.toDp() }
+            val pickWidth  = with(density) { GuessPickWidth.toDp() }
+            val scoreWidth = with(density) { GuessScoreWidth.toDp() }
+            GuessTableHeader(data, leadWidth, pickWidth, scoreWidth)
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(8.dp))
             val scoredCount = data.guessScores.count { it.score > 0 }
             var scoredRank = 0
             var lastScore: Int? = null
             data.guessScores.forEachIndexed { i, gs ->
-                if (i > 0 && i != scoredCount) Spacer(Modifier.height(8.dp))
+                if (i > 0 && i != scoredCount) Spacer(Modifier.height(4.dp))
                 if (i == scoredCount && scoredCount > 0) {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(10.dp))
                 }
                 // Dense ranking: ties share a rank, e.g. 1, 2, 2, 3 (not 1, 2, 2, 4).
                 val rank = if (gs.score > 0) {
                     if (gs.score != lastScore) { scoredRank++; lastScore = gs.score }
                     scoredRank
                 } else null
-                GuessUserBlock(gs, rank, data, animVersion = animVersion, animDelayMs = (i * 70).toLong())
+                GuessTableRow(gs, rank, data, leadWidth, pickWidth, scoreWidth,animVersion = animVersion, animDelayMs = (i * 70).toLong())
             }
-        }
-        if (data.officialTop3ByRank.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "${s.aftershowOfficial}:",
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f),
-                    letterSpacing = 0.3.sp
-                )
-                Spacer(Modifier.width(10.dp))
-                listOf(1 to "🥇", 2 to "🥈", 3 to "🥉").forEachIndexed { idx, (rank, medal) ->
-                    if (idx > 0) Spacer(Modifier.width(10.dp))
-                    val order = data.officialTop3ByRank[rank]
-                    val participant = order?.let { data.orderToParticipant[it] }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(medal, fontSize = 10.sp, modifier = Modifier.alpha(0.50f))
-                        Text(
-                            if (participant != null) countryFlag(participant.country) else "🏳️",
-                            fontSize = 13.sp,
-                            modifier = Modifier.alpha(0.58f)
-                        )
-                        Text(
-                            if (participant != null) s.translateCountry(participant.country) else "",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-                            letterSpacing = 0.3.sp
-                        )
-                    }
-                }
-            }
-        }
-        if (data.guessScores.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
             Text(
                 s.aftershowGuessScoringExplainer,
                 fontSize = 10.5.sp,
@@ -1313,7 +1289,7 @@ private fun CompatibilityCard(data: AfterShowData, animVersion: Int = -1, sideIn
         AlertDialog(
             onDismissRequest = { infoOpen = false },
             title = { Text(s.aftershowCompatibilityInfoTitle, style = MaterialTheme.typography.titleLarge) },
-            text = { Text(s.aftershowCompatibilityInfoBody) },
+            text = { Text(s.aftershowCompatibilityInfoBody, Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = { TextButton(onClick = { infoOpen = false }) { Text(s.aftershowInfoClose) } }
         )
     }
@@ -1392,12 +1368,13 @@ private fun CompatibilityHero(myUsername: String?, best: Compatibility, animVers
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Text(
-            "${shown.value.roundToInt()}%",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = GlowRose
-        )
+        // The space is reserved for the final value (tabular digits, so no count-up value is
+        // wider), keeping the text on the left from rewrapping while the number animates.
+        val percentStyle = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, fontFeatureSettings = "tnum")
+        Box(contentAlignment = Alignment.CenterEnd) {
+            Text("${best.percent}%", style = percentStyle, modifier = Modifier.alpha(0f))
+            Text("${shown.value.roundToInt()}%", style = percentStyle, color = GlowRose)
+        }
     }
 }
 
@@ -1493,7 +1470,7 @@ private fun GroupConsensusCard(data: AfterShowData, animVersion: Int = -1, sideI
         AlertDialog(
             onDismissRequest = { infoOpen = false },
             title = { Text(s.aftershowConsensusInfoTitle, style = MaterialTheme.typography.titleLarge) },
-            text = { Text(s.aftershowConsensusInfoBody) },
+            text = { Text(s.aftershowConsensusInfoBody, Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = { TextButton(onClick = { infoOpen = false }) { Text(s.aftershowInfoClose) } }
         )
     }
@@ -1642,7 +1619,7 @@ private fun AwardsCard(
         AlertDialog(
             onDismissRequest = { infoOpen = false },
             title = { Text(s.aftershowAwardsInfoTitle, style = MaterialTheme.typography.titleLarge) },
-            text = { Text(s.aftershowAwardsInfoBody) },
+            text = { Text(s.aftershowAwardsInfoBody, Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = { TextButton(onClick = { infoOpen = false }) { Text(s.aftershowInfoClose) } }
         )
     }
@@ -2542,19 +2519,69 @@ private fun InfographicSection(
 
 // ── Guess leaderboard ─────────────────────────────────────────────────────────
 
+// The rank + name and score columns are sized in sp so they grow with the system font size and
+// stay the same width in every row. The three medal columns are grouped in the middle, each up to
+// GuessPickWidth wide, and share the width left over when that isn't enough.
+private val GuessLeadWidth  = 58.sp
+private val GuessScoreWidth = 36.sp
+private val GuessPickWidth  = 56.sp
+private val GuessRowPadding = 8.dp
+private val guessMedals     = listOf("🥇", "🥈", "🥉")
+
+// The middle of a guess table row: three medal columns, each up to pickWidth wide, centred as a group.
 @Composable
-private fun GuessUserBlock(
+private fun RowScope.GuessPickColumns(pickWidth: Dp, verticalAlignment: Alignment.Vertical, cell: @Composable (pickRank: Int) -> Unit) {
+    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = verticalAlignment) {
+        (1..3).forEach { pickRank ->
+            Box(Modifier.weight(1f, fill = false).width(pickWidth), contentAlignment = Alignment.Center) { cell(pickRank) }
+        }
+    }
+}
+
+@Composable
+private fun GuessTableHeader(data: AfterShowData, leadWidth: Dp, pickWidth: Dp, scoreWidth: Dp) {
+    val s     = LocalAppStrings.current
+    val faint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = GuessRowPadding),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Spacer(Modifier.width(leadWidth))
+        GuessPickColumns(pickWidth, Alignment.CenterVertically) { pickRank ->
+            val participant = data.officialTop3ByRank[pickRank]?.let { data.orderToParticipant[it] }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(guessMedals[pickRank - 1], fontSize = 12.sp, lineHeight = 18.sp)
+                Text(if (participant != null) countryFlag(participant.country) else "🏳️", fontSize = 16.sp, lineHeight = 18.sp)
+            }
+        }
+        Text(
+            s.aftershowGuessScoreUnit.uppercase(),
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            color = faint,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.width(scoreWidth).padding(bottom = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun GuessTableRow(
     gs: GuessScore,
     rankInLeaderboard: Int?,
     data: AfterShowData,
+    leadWidth: Dp,
+    pickWidth: Dp,
+    scoreWidth: Dp,
     animVersion: Int = -1,
     animDelayMs: Long = 0L
 ) {
-    val s            = LocalAppStrings.current
     val isZero       = rankInLeaderboard == null
     val scoreColor   = if (!isZero) guessRankColor(rankInLeaderboard!!)
                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-    val targetAlpha  = if (isZero) 0.40f else 1f
+    val targetAlpha  = if (isZero) 0.65f else 1f
     val offsetY      = remember(animVersion) { Animatable(if (animVersion == -1) 0f else 10f) }
     val blockAlpha   = remember(animVersion) { Animatable(if (animVersion == -1) targetAlpha else 0f) }
     LaunchedEffect(animVersion) {
@@ -2564,95 +2591,72 @@ private fun GuessUserBlock(
             blockAlpha.animateTo(targetAlpha, tween(durationMillis = 220))
         }
     }
+    val badgeSize    = with(LocalDensity.current) { 20.sp.toDp() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .offset(y = offsetY.value.dp)
             .alpha(blockAlpha.value)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .padding(horizontal = 11.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isZero) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            .padding(horizontal = GuessRowPadding, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier.size(22.dp).background(scoreColor, CircleShape),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.width(leadWidth),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                if (rankInLeaderboard != null) "$rankInLeaderboard" else "–",
-                fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black.copy(alpha = 0.75f)
-            )
+            Box(
+                modifier = Modifier.size(badgeSize).background(scoreColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    if (rankInLeaderboard != null) "$rankInLeaderboard" else "–",
+                    fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black.copy(alpha = 0.75f)
+                )
+            }
+            Text(gs.username, fontSize = 14.sp, fontWeight = if (isZero) FontWeight.Normal else FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Clip)
         }
-        Text(gs.username, fontSize = 14.sp, fontWeight = if (isZero) FontWeight.Normal else FontWeight.ExtraBold, modifier = Modifier.width(30.dp), maxLines = 1, overflow = TextOverflow.Clip)
-        Spacer(Modifier.weight(1f))
-        Box(
-            modifier = Modifier.width(160.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                (1..3).forEach { pickRank ->
-                    val order = gs.picks[pickRank]
-                    if (order != null) {
-                        val result      = pickResult(pickRank, order, data.officialTop3ByRank, data.officialTop3Orders)
-                        val participant = data.orderToParticipant[order]
-                        GuessPickChip(
-                            flag       = if (participant != null) countryFlag(participant.country) else "🏳️",
-                            result     = result,
-                            pickRank   = pickRank,
-                            emphasized = !isZero
-                        )
-                    }
-                }
+        GuessPickColumns(pickWidth, Alignment.CenterVertically) { pickRank ->
+            val order = gs.picks[pickRank]
+            if (order == null) {
+                Text("–", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            } else {
+                val participant = data.orderToParticipant[order]
+                GuessPickCell(
+                    flag   = if (participant != null) countryFlag(participant.country) else "🏳️",
+                    result = pickResult(pickRank, order, data.officialTop3ByRank, data.officialTop3Orders)
+                )
             }
         }
-        Spacer(Modifier.weight(1f))
-        Row(
-            modifier = Modifier
-                .background(scoreColor.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
-                .border(1.dp, scoreColor.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
+        Box(Modifier.width(scoreWidth), contentAlignment = Alignment.Center) {
             val scoreFontSize = if (isZero) 14.sp else 15.sp
-            Text("${gs.score}", fontSize = scoreFontSize, fontWeight = FontWeight.ExtraBold, color = scoreColor, lineHeight = scoreFontSize)
             Text(
-                s.aftershowGuessScoreUnit.uppercase(),
-                fontSize = 11.sp,
+                "${gs.score}",
+                fontSize = scoreFontSize,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.4.sp,
-                color = scoreColor.copy(alpha = 0.75f)
+                color = scoreColor,
+                lineHeight = scoreFontSize,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(scoreColor.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
+                    .border(1.dp, scoreColor.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             )
         }
     }
 }
 
+// One pick under its medal column: a correct pick sits on a tint of its result accent, a miss is greyed out.
 @Composable
-private fun GuessPickChip(flag: String, result: PickResult, pickRank: Int, emphasized: Boolean = false) {
-    val chipColor = when (result) {
-        PickResult.EXACT -> GlowGreen
-        PickResult.CLOSE -> Color(0xFFC084FC)
-        PickResult.MISS  -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+private fun GuessPickCell(flag: String, result: PickResult) {
+    val look = if (result == PickResult.MISS) {
+        Modifier.alpha(0.45f)
+    } else {
+        Modifier.background(pickResultTint(result), RoundedCornerShape(8.dp))
     }
-    val ptsText     = when (result) { PickResult.EXACT -> "+2"; PickResult.CLOSE -> "+1"; PickResult.MISS -> "+0" }
-    val medalColor  = when (pickRank) { 1 -> GlowGold; 2 -> GlowSilver; else -> GlowBronze }
-    val flagSize    = if (emphasized) 14.sp else 13.sp
-    val flagLine    = if (emphasized) 15.sp else 14.sp
-    val ptsSize     = if (emphasized) 11.sp else 10.sp
-    Row(
-        modifier = Modifier
-            .alpha(if (result == PickResult.MISS) 0.50f else 1f)
-            .background(chipColor.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
-            .border(1.dp, medalColor.copy(alpha = 0.85f), RoundedCornerShape(20.dp))
-            .padding(start = 8.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        Text(flag, fontSize = flagSize, lineHeight = flagLine)
-        Text(ptsText, fontSize = ptsSize, fontWeight = FontWeight.ExtraBold, color = chipColor)
-    }
+    Text(flag, fontSize = 16.sp, lineHeight = 18.sp, modifier = look.padding(horizontal = 8.dp, vertical = 3.dp))
 }
 
 
@@ -2751,7 +2755,9 @@ private fun OverlapBar(fraction: Float, label: String, color: Color, animVersion
             style = MaterialTheme.typography.labelSmall,
             color = color,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(30.dp),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.width(30.dp.fontScaled()),
             textAlign = TextAlign.End
         )
     }
@@ -3174,7 +3180,7 @@ private fun RankShiftColumn(
     alphaOf: (Int) -> Float,
     flagOf: (Int) -> String
 ) {
-    Column(Modifier.width(RankShiftColumnWidth)) {
+    Column(Modifier.width(RankShiftColumnWidth.fontScaled())) {
         for (rank in 1..rowCount) {
             val order = orderByRank[rank]
             Row(
@@ -3190,7 +3196,9 @@ private fun RankShiftColumn(
                             color = rankColor,
                             fontWeight = FontWeight.ExtraBold,
                             textAlign = if (leading) TextAlign.End else TextAlign.Start,
-                            modifier = Modifier.width(20.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.width(20.dp.fontScaled())
                         )
                     }
                     val flag = @Composable { Text(flagOf(order), fontSize = 15.sp, lineHeight = 18.sp) }

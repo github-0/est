@@ -311,20 +311,47 @@ def confirm(prompt="Press Y to proceed (anything else cancels): "):
 # ── Room operations ───────────────────────────────────────────────────────────
 
 def fetch_room(token, room_code):
-    """Return (room_fields_dict, members_list) or None if room not found."""
+    """Return (room_fields_dict, members_list) or None if room not found.
+    Each member has uid, username and lastSeenAt (presence heartbeat timestamp or None)."""
     doc = get_doc(token, f"rooms/{room_code}")
     if doc is None:
         return None
     room_fields = {k: from_fs(v) for k, v in doc.get("fields", {}).items()}
+    last_seen = {}
+    for p_doc in list_collection(token, f"rooms/{room_code}/presence"):
+        f = p_doc.get("fields", {})
+        if "lastSeenAt" in f:
+            last_seen[p_doc["name"].rsplit("/", 1)[-1]] = from_fs(f["lastSeenAt"])
     members = []
     for m_doc in list_collection(token, f"rooms/{room_code}/members"):
         uid = m_doc["name"].rsplit("/", 1)[-1]
         f   = m_doc.get("fields", {})
         members.append({
-            "uid":      uid,
-            "username": from_fs(f["username"]) if "username" in f else uid,
+            "uid":        uid,
+            "username":   from_fs(f["username"]) if "username" in f else uid,
+            "lastSeenAt": last_seen.get(uid),
         })
     return room_fields, members
+
+
+# Must match PRESENCE_ONLINE_WINDOW_MS in MainViewModel.kt.
+PRESENCE_ONLINE_WINDOW = timedelta(minutes=5)
+
+
+def presence_label(last_seen_at):
+    """'online', 'last seen 12 min ago' or 'never seen' from a presence lastSeenAt timestamp."""
+    if last_seen_at is None:
+        return "never seen"
+    ts  = datetime.fromisoformat(last_seen_at.rstrip("Z").split(".")[0]).replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - ts
+    if age < PRESENCE_ONLINE_WINDOW:
+        return "online"
+    minutes = int(age.total_seconds() // 60)
+    if minutes < 120:
+        return f"last seen {minutes} min ago"
+    if minutes < 48 * 60:
+        return f"last seen {minutes // 60} h ago"
+    return f"last seen {ts.strftime('%Y-%m-%d')}"
 
 
 def delete_member(token, room_code, uid, username):
@@ -335,6 +362,9 @@ def delete_member(token, room_code, uid, username):
 
     delete_doc(token, f"{base}/usernames/{username.lower()}")
     print(f"  Deleted username lock '{username.lower()}'")
+
+    if delete_doc(token, f"{base}/presence/{uid}") != 404:
+        print("  Deleted presence document")
 
     for show_doc in list_collection(token, f"{base}/votes"):
         show_id = show_doc["name"].rsplit("/", 1)[-1]
@@ -377,6 +407,11 @@ def delete_room(token, room_code):
     for name in names:
         delete_doc(token, f"{base}/usernames/{name}")
     print(f"  Deleted {len(names)} username lock(s)")
+
+    presence = [d["name"].rsplit("/", 1)[-1] for d in list_collection(token, f"{base}/presence")]
+    for uid in presence:
+        delete_doc(token, f"{base}/presence/{uid}")
+    print(f"  Deleted {len(presence)} presence document(s)")
 
     for show_doc in list_collection(token, f"{base}/votes"):
         show_id = show_doc["name"].rsplit("/", 1)[-1]
@@ -608,18 +643,24 @@ def do_upload_participants(token):
     if not PARTICIPANTS_FILE.exists():
         print(f"Error: {PARTICIPANTS_FILE.name} not found.")
         print(f"Create it at: {PARTICIPANTS_FILE}")
-        print('Format: {"final": [{"order": 1, "country": "...", "artist": "...", "song": "..."}, ...], "semi1": [], "semi2": []}')
+        print('Format: {"year": 2026, "final": [{"order": 1, "country": "...", "artist": "...", "song": "..."}, ...], "semi1": [], "semi2": []}')
         return
 
     with open(PARTICIPANTS_FILE, encoding="utf-8") as f:
         shows = json.load(f)
 
+    # The year is written onto every show document; the app shows it as the active year.
+    year = shows.pop("year", None)
+    if not isinstance(year, int):
+        print(f'Error: {PARTICIPANTS_FILE.name} needs a top-level "year" (e.g. "year": 2026).')
+        return
+
     for show_id, participants in shows.items():
         if not participants:
             print(f"  {show_id}: skipped (empty)")
             continue
-        print(f"  {show_id}: {len(participants)} participant(s)...", end=" ", flush=True)
-        status = patch(token, f"shows/{show_id}", {"participants": participants})
+        print(f"  {show_id}: {len(participants)} participant(s), year {year}...", end=" ", flush=True)
+        status = patch(token, f"shows/{show_id}", {"year": year, "participants": participants})
         print(f"HTTP {status}")
 
     print("Done.")
@@ -916,9 +957,9 @@ def menu_rename_restore(token):
         print("  2) Restore shows/final_test   →  shows/final")
         print("  3) Rename  results/final       →  results/final_test")
         print("  4) Restore results/final_test  →  results/final")
-        print("  0) Back")
+        print("\n  Enter = Back")
         choice = _input_safe("\nChoice: ").strip()
-        if choice == "0":
+        if not choice:
             return
         elif choice == "1":
             print("\nRename shows/final → shows/final_test")
@@ -947,9 +988,10 @@ def menu_database(token):
         print("  4) Upload results")
         print(f"  5) Create demo room ({_DEMO_ROOM_CODE})")
         print("  6) Rename / restore shows and results")
-        print("  0) Back")
+        print("  7) Purge stale anonymous Auth users (90+ days)")
+        print("\n  Enter = Back")
         choice = _input_safe("\nChoice: ").strip()
-        if choice == "0":
+        if not choice:
             return
         elif choice == "1":
             do_backup(token)
@@ -965,15 +1007,15 @@ def menu_database(token):
                 do_create_demo_room(token)
         elif choice == "6":
             menu_rename_restore(token)
+        elif choice == "7":
+            purge_stale_auth_users(token)
 
 
 def _menu_room_manage(token):
     while True:
-        room_code = _input_safe("\nEnter room code (or 0 to go back): ").strip().upper()
-        if room_code == "0":
-            return
+        room_code = _input_safe("\nEnter room code: ").strip().upper()
         if not room_code:
-            continue
+            return
 
         result = fetch_room(token, room_code)
         if result is None:
@@ -988,7 +1030,7 @@ def _menu_room_manage(token):
             if members:
                 print("Members:")
                 for i, m in enumerate(members, 1):
-                    print(f"  {i}) {m['username']}  (uid: {m['uid']})")
+                    print(f"  {i}) {m['username']}  (uid: {m['uid']})  {presence_label(m['lastSeenAt'])}")
             else:
                 print("Members: (none)")
 
@@ -1000,16 +1042,19 @@ def _menu_room_manage(token):
         while True:
             print("\n  1) Delete a member")
             print("  2) Delete whole room")
-            print("  0) Back")
+            print("\n  Enter = Back")
             choice = _input_safe("\nChoice: ").strip()
-            if choice == "0":
+            if not choice:
                 break
             elif choice == "1":
                 if not members:
                     print("No members in this room.")
                     continue
+                selection = _input_safe(f"Select member [1-{len(members)}]: ").strip()
+                if not selection:
+                    continue
                 try:
-                    idx = int(_input_safe(f"Select member [1-{len(members)}]: ").strip()) - 1
+                    idx = int(selection) - 1
                     if not 0 <= idx < len(members):
                         raise ValueError
                 except ValueError:
@@ -1023,7 +1068,7 @@ def _menu_room_manage(token):
                     print("Done.")
                     _print_members()
             elif choice == "2":
-                print(f"\nDelete room {room_code} and ALL its data (members, votes, comments, guesses)?")
+                print(f"\nDelete room {room_code} and ALL its data (members, presence, votes, comments, guesses)?")
                 if confirm():
                     delete_room(token, room_code)
                     print("Done.")
@@ -1033,19 +1078,16 @@ def _menu_room_manage(token):
 def menu_room(token):
     while True:
         print("\nRoom maintenance")
-        print("  1) Manage specific room")
+        print("  1) Manage a room")
         print("  2) Purge stale rooms (90+ days)")
-        print("  3) Purge stale anonymous Auth users (90+ days)")
-        print("  0) Back")
+        print("\n  Enter = Back")
         choice = _input_safe("\nChoice: ").strip()
-        if choice == "0":
+        if not choice:
             return
         elif choice == "1":
             _menu_room_manage(token)
         elif choice == "2":
             purge_stale_rooms(token)
-        elif choice == "3":
-            purge_stale_auth_users(token)
 
 
 def main():
@@ -1064,9 +1106,9 @@ def main():
         print("Main menu")
         print("  1) Room maintenance")
         print("  2) Database maintenance")
-        print("  0) Quit")
+        print("\n  Enter = Quit")
         choice = _input_safe("\nChoice: ").strip()
-        if choice == "0":
+        if not choice:
             print("Goodbye.")
             break
         elif choice == "1":

@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -60,6 +61,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.runtime.Composable
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
@@ -119,8 +130,87 @@ private val GlowPink = Color(0xFFEC4899)
 private val GlowPurple = Color(0xFFA855F7)
 private val AccentBlue = Color(0xFF6d63fc)
 private val NavButtonColor = Color(0xFFcf37ed)
+// Emerald from the same Tailwind family as the theme's pink/purple/cyan, so it sits with both
+// the purple own-pill text and the light other-pill text. Cooler than a pure green, so it reads
+// as a status hint rather than a highlight. Cyan is avoided as it's the comments accent.
+private val OnlineGreen = Color(0xFF10B981)
+
+// Space between the pill and the tooltip; matches the Aftershow card jump strip's bubble.
+private val PressTooltipGap = 6.dp
+// Room around the bubble inside the popup window so its glow isn't clipped.
+private val PressTooltipGlowRoom = 12.dp
+
+// Shows a bubble above the content for exactly as long as a finger is on it. Styled like the
+// Aftershow card jump strip's bubble, with OnlineGreen as the accent.
+@Composable
+private fun PressTooltip(enabled: Boolean, text: String, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    var pressed by remember { mutableStateOf(false) }
+    Box(
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                pressed = true
+                // Stays open until the finger lifts, even if it slides off the pill or scrolls the page.
+                try {
+                    do {
+                        val event = awaitPointerEvent()
+                    } while (event.changes.any { it.id == down.id && it.pressed })
+                } finally {
+                    pressed = false
+                }
+            }
+        }
+    ) {
+        content()
+        if (pressed) {
+            val density = LocalDensity.current
+            val gap = with(density) { PressTooltipGap.roundToPx() }
+            val glowRoom = with(density) { PressTooltipGlowRoom.roundToPx() }
+            val shape = RoundedCornerShape(10.dp)
+            Popup(popupPositionProvider = remember(gap, glowRoom) { AboveAnchorPositionProvider(gap, glowRoom) }) {
+                Box(Modifier.padding(PressTooltipGlowRoom)) {
+                    Text(
+                        text.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .glow(OnlineGreen, radius = 12.dp, cornerRadius = 10.dp, alpha = 0.45f)
+                            .clip(shape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, OnlineGreen, shape)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// Centres the popup horizontally over the anchor with the bubble `gap` px above it, kept inside
+// the window. The popup has `inset` px of glow room on every side around the bubble.
+private class AboveAnchorPositionProvider(private val gap: Int, private val inset: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        val x = (anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2)
+            .coerceIn(-inset, (windowSize.width - popupContentSize.width + inset).coerceAtLeast(-inset))
+        val y = anchorBounds.top - gap - popupContentSize.height + inset
+        return IntOffset(x, y)
+    }
+}
 
 private enum class NoRoomState { SELECTION, CREATING, JOINING }
+
 
 private enum class ContentState(val level: Int) {
     SELECTION(0), CREATING(1), JOINING(1), JOINED(2)
@@ -480,7 +570,9 @@ fun UsernameShowScreen(
     val currentUsername by vm.username.collectAsState()
     val currentShowId by vm.selectedShowId.collectAsState()
     val shows by vm.shows.collectAsState()
+    val activeYear by vm.activeYear.collectAsState()
     val members by vm.members.collectAsState()
+    val onlineUids by vm.onlineUids.collectAsState()
     val updateInfo by vm.updateInfo.collectAsState()
 
     var noRoomState by remember { mutableStateOf(NoRoomState.SELECTION) }
@@ -651,8 +743,7 @@ fun UsernameShowScreen(
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier.fillMaxWidth()
             )
-            SparkleOverlay(modifier = Modifier.matchParentSize())
-        }
+            SparkleOverlay(modifier = Modifier.matchParentSize())        }
 
         Column(
             modifier = Modifier
@@ -707,14 +798,19 @@ fun UsernameShowScreen(
                 val lastMembers = remember { mutableStateOf(members) }
                 val lastUsername = remember { mutableStateOf(currentUsername ?: "") }
                 val lastShowId = remember { mutableStateOf(currentShowId) }
+                val lastOnlineUids = remember { mutableStateOf(onlineUids) }
                 SideEffect {
                     if (currentRoomCode != null) {
                         lastRoomCode.value = currentRoomCode!!
+                        lastOnlineUids.value = onlineUids
                         if (currentUsername != null) lastUsername.value = currentUsername!!
                         if (currentShowId != null) lastShowId.value = currentShowId
                     }
                     if (members.isNotEmpty()) lastMembers.value = members
                 }
+                // Read during composition, not only in the SideEffect above: reads there aren't
+                // tracked, so presence changes alone would never recompose the pills.
+                val shownOnlineUids = if (currentRoomCode != null) onlineUids else lastOnlineUids.value
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -801,44 +897,60 @@ fun UsernameShowScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                lastMembers.value.values.sorted().forEach { name ->
+                                lastMembers.value.entries.sortedBy { it.value }.forEach { (uid, name) ->
                                     val isMe = name == lastUsername.value
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(PillShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                                            .then(if (isMe) Modifier.clickable {
-                                                val name0 = currentUsername ?: ""
-                                                renameText = TextFieldValue(text = name0, selection = TextRange(name0.length))
-                                                renameError = null
-                                                showRenameDialog = true
-                                            } else Modifier)
-                                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isMe) {
+                                    val isOnline = uid in shownOnlineUids
+                                    // Not on your own pill: a tap there opens rename, and the tooltip would flash.
+                                    PressTooltip(enabled = isOnline && !isMe, text = s.memberOnline(name)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(PillShape)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                .then(if (isMe) Modifier.clickable {
+                                                    val name0 = currentUsername ?: ""
+                                                    renameText = TextFieldValue(text = name0, selection = TextRange(name0.length))
+                                                    renameError = null
+                                                    showRenameDialog = true
+                                                } else Modifier)
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                                             ) {
-                                                Text(
-                                                    name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                                Icon(
-                                                    Icons.Default.Edit,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                    modifier = Modifier.size(13.dp)
-                                                )
+                                                // Online dot sits on the name's top-right corner, slightly overlapping it.
+                                                Box {
+                                                    Text(
+                                                        name,
+                                                        style = MaterialTheme.typography.bodyLarge,
+                                                        color = if (isMe) MaterialTheme.colorScheme.primary
+                                                                else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    // The ring in the pill colour masks the part of the name under the dot.
+                                                    if (isOnline) {
+                                                        Box(
+                                                            Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .offset(x = 5.5.dp, y = 0.5.dp)
+                                                                .size(9.dp)
+                                                                // Ring as a background with the dot inset: a border drawn over
+                                                                // the dot leaves a faint anti-aliased halo of green outside it.
+                                                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                                                .padding(1.5.dp)
+                                                                .background(OnlineGreen, CircleShape)
+                                                        )
+                                                    }
+                                                }
+                                                if (isMe) {
+                                                    Icon(
+                                                        Icons.Default.Edit,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
                                             }
-                                        } else {
-                                            Text(
-                                                name,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
                                         }
                                     }
                                 }
@@ -851,7 +963,7 @@ fun UsernameShowScreen(
                 SectionCard(highlighted = (currentShowId ?: lastShowId.value) == null) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            s.show.uppercase(),
+                            s.show.uppercase() + (activeYear?.let { " · $it" } ?: ""),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         )

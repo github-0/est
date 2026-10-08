@@ -32,6 +32,7 @@ interface AppStrings {
     val leave: String
     val renameUser: String
     val members: String
+    fun memberOnline(username: String): String
 
     // Nav tabs
     val profileTab: String
@@ -170,7 +171,6 @@ interface AppStrings {
     fun aftershowCountryFallback(order: Int): String
     val aftershowNotAvailableBody: String
     val aftershowNoVotes: String
-    val aftershowOfficial: String
     val aftershowOfficialResults: String
     val aftershowOfficialLabel: String
     val aftershowResultsLabel: String

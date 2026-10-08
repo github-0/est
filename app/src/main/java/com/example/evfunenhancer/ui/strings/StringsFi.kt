@@ -1,5 +1,6 @@
 package com.example.evfunenhancer.ui.strings
 
+import com.example.evfunenhancer.utils.canonicalCountry
 
 object StringsFi : AppStrings {
     override val username = "Käyttäjänimi"
@@ -10,7 +11,7 @@ object StringsFi : AppStrings {
     override val semiFinal2 = "Semi 2"
     override val final = "Finaali"
     override val confirm = "VAHVISTA"
-    override fun translateCountry(name: String) = countryNamesFi[name] ?: name
+    override fun translateCountry(name: String) = countryNamesFi[canonicalCountry(name)] ?: name
     override fun showLabel(showId: String) = when (showId) {
         "semi1" -> semiFinal1
         "semi2" -> semiFinal2
@@ -35,6 +36,7 @@ object StringsFi : AppStrings {
     override val leave = "Poistu huoneesta"
     override val renameUser = "Vaihda käyttäjänimi"
     override val members = "Jäsenet"
+    override fun memberOnline(username: String) = "$username on paikalla"
 
     override val profileTab = "Asetukset"
     override val pointsTab = "Äänestys"
@@ -103,13 +105,13 @@ object StringsFi : AppStrings {
     override val aftershowGroupAgreement = "ryhmän yksimielisyys virallisten tulosten kanssa"
     override val aftershowMostGenerous = "ANTELIAIMMAT ÄÄNESTÄJÄT"
     override val aftershowMostRobbed = "KUKA ANSAITSI ENEMMÄN"
-    override val aftershowColGroup = "ryhmän"
-    override val aftershowColOfficial = "tulos"
+    override val aftershowColGroup = "Ryhmä"
+    override val aftershowColOfficial = "Eurooppa"
     override val aftershowBiggestSurprise = "MUIDEN SUOSIKKI"
     override val aftershowRankShift = "SIJOITUSTEN VERTAILU"
     override val aftershowCompatibility = "MAKUKAVERIT"
     override val aftershowCompatibilityClosest = "LÄHIN MAKUKAVERISI"
-    override val aftershowCompatibilityNoOwnVotes = "Pisteytä finaali nähdäksesi, kenen kanssa makusi osuu yksiin."
+    override val aftershowCompatibilityNoOwnVotes = "Pisteytä finaali nähdäksesi kenen kanssa makusi osuu yksiin."
     override val aftershowCompatibilityNoOthers = "Kukaan muu ei pisteyttänyt tarpeeksi samoja kappaleita."
     override val aftershowCompatibilityInfoTitle = "Miten osuvuus lasketaan"
     override val aftershowCompatibilityInfoBody =
@@ -120,8 +122,8 @@ object StringsFi : AppStrings {
         "jos näitä on alle 3 tai jompikumpi antoi niille kaikille samat pisteet."
     override val aftershowInfoClose = "Selvä"
     override val aftershowConsensus = "RYHMÄN YKSIMIELISYYS"
-    override val aftershowConsensusPick = "SAMAA MIELTÄ"
-    override val aftershowMostDivisive = "JAKOI MIELIPITEET"
+    override val aftershowConsensusPick = "VÄHITEN HAJONTAA"
+    override val aftershowMostDivisive = "ENITEN HAJONTAA"
     override val aftershowConsensusTooFewVoters = "Vähintään kahden jäsenen täytyy pisteyttää finaali."
     override val aftershowConsensusNoOverlap = "Yksikään kappale ei saanut pisteitä tarpeeksi monelta."
     override val aftershowConsensusInfoTitle = "Miten listat lasketaan"
@@ -130,7 +132,7 @@ object StringsFi : AppStrings {
         "kappaleen keskiarvosta.\n\nKappale jätetään pois, jos alle puolet äänestäjistä " +
         "(tai alle 2) pisteytti sen."
     override val aftershowAwards = "PALKINNOT"
-    override val aftershowAwardsNoneForYou = "Ei palkintoa sinulle tänä vuonna — nämä muut saivat."
+    override val aftershowAwardsNoneForYou = "Sinulle ei osunut palkintoa tänä vuonna — muut saivat nämä."
     override val aftershowAwardsOthers = "MUIDEN PALKINNOT"
     override fun aftershowAwardsShowOthers(count: Int) = if (count == 1) "Näytä 1 muu palkinto" else "Näytä $count muuta palkintoa"
     override val aftershowAwardsHideOthers = "Piilota muut palkinnot"
@@ -187,7 +189,6 @@ object StringsFi : AppStrings {
     override fun aftershowCountryFallback(order: Int) = "Maa $order"
     override val aftershowNotAvailableBody = "Finaalin tuloksia ei ole vielä ladattu — tarkista myöhemmin uudelleen!"
     override val aftershowNoVotes = "Ei vielä äänestyksiä."
-    override val aftershowOfficial = "TULOS"
     override val aftershowOfficialResults = "LOPPUTULOKSET"
     override val aftershowOfficialLabel = "VIRALLISET"
     override val aftershowResultsLabel = "TULOKSET"
@@ -225,8 +226,10 @@ object StringsFi : AppStrings {
     override val updateChecking: String = "Tarkistetaan päivityksiä…"
 }
 
-// Keys match the exact English country name strings stored in Firestore.
-// Add new entries here when new countries are added to the seed data.
+// Keys are the English names used in participants.json (other spellings are resolved through
+// canonicalCountry() in FlagUtils.kt). Covers every past entrant plus likely debutants; names
+// that are the same in Finnish are listed too so the table doubles as the country list.
+// The web version has a copy in docs/app/i18n.js.
 private val countryNamesFi = mapOf(
     // Current participants
     "Albania" to "Albania",
@@ -282,4 +285,10 @@ private val countryNamesFi = mapOf(
     "Russia" to "Venäjä",
     "Slovakia" to "Slovakia",
     "Turkey" to "Turkki",
+    "Serbia and Montenegro" to "Serbia ja Montenegro",
+    "Yugoslavia" to "Jugoslavia",
+    // Possible debutants
+    "Kazakhstan" to "Kazakstan",
+    "Lebanon" to "Libanon",
+    "Tunisia" to "Tunisia",
 )

@@ -3,6 +3,7 @@ package com.example.evfunenhancer.data
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.SetOptions
@@ -55,6 +56,17 @@ class FirestoreRepository {
                     }.sortedBy { it.order }
                 }
                 trySend(result)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // The year admin.py writes onto each show document (the latest one if they disagree);
+    // null when no show has a year yet.
+    fun watchShowsYear(): Flow<Int?> = callbackFlow {
+        val listener = db.collection("shows")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot == null) return@addSnapshotListener
+                trySend(snapshot.documents.mapNotNull { it.getLong("year")?.toInt() }.maxOrNull())
             }
         awaitClose { listener.remove() }
     }
@@ -221,6 +233,42 @@ class FirestoreRepository {
         awaitClose { listener.remove() }
     }
 
+    // -------------------------------------------------------------------------
+    // Presence (room-scoped, one doc per UID with the server time of its last heartbeat)
+    // -------------------------------------------------------------------------
+
+    // Emits {uid: lastSeenAt in epoch millis}. ESTIMATE fills in our own pending
+    // server timestamp so it isn't null until the write is acknowledged.
+    fun getPresence(roomCode: String): Flow<Map<String, Long>> = callbackFlow {
+        val listener = db.collection("rooms").document(roomCode)
+            .collection("presence")
+            .addSnapshotListener { snapshot, _ ->
+                val result = snapshot?.documents?.mapNotNull { doc ->
+                    val seen = doc.getTimestamp("lastSeenAt", DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        ?: return@mapNotNull null
+                    doc.id to seen.toDate().time
+                }?.toMap() ?: emptyMap()
+                trySend(result)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // Not awaited: a write only completes once the server acknowledges it, which would stall
+    // the heartbeat loop while offline. Failures (e.g. removed from the room) are ignored.
+    fun sendPresenceHeartbeat(roomCode: String) {
+        val uid = try { getUid() } catch (_: Exception) { return }
+        db.collection("rooms").document(roomCode)
+            .collection("presence").document(uid)
+            .set(mapOf("lastSeenAt" to FieldValue.serverTimestamp()))
+    }
+
+    fun clearPresence(roomCode: String) {
+        val uid = try { getUid() } catch (_: Exception) { return }
+        db.collection("rooms").document(roomCode)
+            .collection("presence").document(uid)
+            .delete()
+    }
+
     fun getCreatorUid(roomCode: String): Flow<String?> = callbackFlow {
         val listener = db.collection("rooms").document(roomCode)
             .addSnapshotListener { snapshot, _ ->
@@ -229,7 +277,7 @@ class FirestoreRepository {
         awaitClose { listener.remove() }
     }
 
-    private val SHOW_IDS = listOf("sf1", "sf2", "final")
+    private val SHOW_IDS = listOf("semi1", "semi2", "final")
 
     suspend fun removeMember(roomCode: String, uidToRemove: String, usernameToRemove: String): Result<Unit> = try {
         val roomRef = db.collection("rooms").document(roomCode)
@@ -237,6 +285,7 @@ class FirestoreRepository {
 
         batch.delete(roomRef.collection("members").document(uidToRemove))
         batch.delete(roomRef.collection("usernames").document(usernameToRemove.lowercase()))
+        batch.delete(roomRef.collection("presence").document(uidToRemove))
 
         for (showId in SHOW_IDS) {
             val entries = roomRef.collection("votes").document(showId)

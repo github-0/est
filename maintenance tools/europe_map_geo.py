@@ -51,7 +51,8 @@ ADDING A COUNTRY
      centre (usually near the capital), not its geometric middle.
   2. Run the script and copy that country's printed line into the `countries` table in
      EuropeMapData.kt. The key must be the exact English name used in participants.json;
-     other spellings go in `aliases` there.
+     other spellings go in COUNTRY_ALIASES in utils/FlagUtils.kt (and docs/app/i18n.js).
+     Also add the country's flag (FlagUtils.kt) and Finnish name (StringsFi.kt) if missing.
   3. Check the landPath report. Usually it says "up to date". If the new country is a small
      island (see SMALL ISLANDS), its enlarged ring is listed to add — paste it with a comment.
   4. If the centre is flagged "on SEA", move it onto land unless that is intended (Denmark's
@@ -92,6 +93,7 @@ CENTRES = {
     'Andorra': (1.52, 42.51), 'Belarus': (27.6, 53.7), 'Bosnia and Herzegovina': (17.9, 44.1), 'Hungary': (19.5, 47.3),
     'Kosovo': (21.0, 42.6), 'Liechtenstein': (9.55, 47.15), 'Monaco': (7.42, 43.74), 'Morocco': (-6.8, 33.6),
     'Russia': (38.5, 55.3), 'Slovakia': (19.1, 48.7), 'Turkey': (31.5, 39.9),
+    'Lebanon': (35.6, 33.9), 'Tunisia': (10.1, 36.4),
 }
 
 

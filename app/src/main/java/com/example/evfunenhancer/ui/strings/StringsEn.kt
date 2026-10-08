@@ -35,6 +35,7 @@ object StringsEn : AppStrings {
     override val leave = "Leave room"
     override val renameUser = "Change Username"
     override val members = "Room Members"
+    override fun memberOnline(username: String) = "$username is online"
 
     override val profileTab = "Settings"
     override val pointsTab = "Voting"
@@ -192,7 +193,6 @@ object StringsEn : AppStrings {
     override fun aftershowCountryFallback(order: Int) = "Country $order"
     override val aftershowNotAvailableBody = "Final results have not yet been uploaded — check back later!"
     override val aftershowNoVotes = "No votes have been cast yet."
-    override val aftershowOfficial = "RESULTS"
     override val aftershowOfficialResults = "OFFICIAL RESULTS"
     override val aftershowOfficialLabel = "OFFICIAL"
     override val aftershowResultsLabel = "RESULTS"

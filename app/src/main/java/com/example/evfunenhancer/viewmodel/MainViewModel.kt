@@ -2,6 +2,8 @@ package com.example.evfunenhancer.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.example.evfunenhancer.BuildConfig
 import com.example.evfunenhancer.data.FirestoreRepository
@@ -16,9 +18,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -92,6 +97,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (code != null) repository.getMembers(code) else flowOf(emptyMap())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // UIDs of members who sent a presence heartbeat within PRESENCE_ONLINE_WINDOW_MS. The ticker
+    // re-evaluates the window so members drop off even when no new snapshot arrives. This
+    // device's own UID is always included while in a room.
+    val onlineUids: StateFlow<Set<String>> =
+        combine(
+            _roomCode.flatMapLatest { code ->
+                if (code != null) repository.getPresence(code) else flowOf(emptyMap())
+            },
+            flow { while (true) { emit(Unit); delay(PRESENCE_RECHECK_MS) } }
+        ) { presence, _ ->
+            val now = System.currentTimeMillis()
+            val online = presence.filterValues { now - it < PRESENCE_ONLINE_WINDOW_MS }.keys
+            if (_roomCode.value != null) online + listOfNotNull(myUid) else online
+        }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val creatorUid: StateFlow<String?> = _roomCode
         .flatMapLatest { code ->
@@ -237,6 +259,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { ready -> if (ready) repository.watchResults("final") else flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    // Year of the participants and results in use: from the show documents, falling back to the
+    // results year for shows uploaded before they carried one.
+    val activeYear: StateFlow<Int?> = _authReady
+        .flatMapLatest { ready -> if (ready) repository.watchShowsYear() else flowOf(null) }
+        .combine(results) { showsYear, res -> showsYear ?: res?.year }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     private val _updateInfo = MutableStateFlow<UpdateCheckResult>(UpdateCheckResult.Pending)
     val updateInfo: StateFlow<UpdateCheckResult> = _updateInfo.asStateFlow()
 
@@ -320,6 +349,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch { _updateInfo.value = checkForUpdate(BuildConfig.VERSION_NAME) }
 
+        // Presence heartbeat: runs while the app is in the foreground and a room is joined.
+        // Going to the background (or the screen turning off) only stops the loop; the doc is
+        // left in place, so the member stays online until PRESENCE_ONLINE_WINDOW_MS runs out.
+        viewModelScope.launch {
+            val foreground = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+                .map { it.isAtLeast(Lifecycle.State.STARTED) }
+            combine(foreground, _roomCode, _authReady) { fg, code, ready ->
+                if (fg && ready) code else null
+            }
+                .distinctUntilChanged()
+                .collectLatest { code ->
+                    if (code == null) return@collectLatest
+                    while (true) {
+                        repository.sendPresenceHeartbeat(code)
+                        delay(PRESENCE_HEARTBEAT_MS)
+                    }
+                }
+        }
+
         // Permanent subscriber so unread state and seen-at times keep flowing
         // regardless of which tab is on screen (mirrors why finalVotes/finalGuesses are
         // watched Eagerly).
@@ -388,6 +436,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leaveRoom() {
+        _roomCode.value?.let { repository.clearPresence(it) }
         _roomCode.value = null
         _username.value = null
         _selectedShowId.value = null
@@ -444,4 +493,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private companion object {
+        // Heartbeat writes are the feature's only real Firestore cost (the presence listener
+        // runs only while the Settings tab is open), so the interval is kept long.
+        const val PRESENCE_HEARTBEAT_MS = 180_000L
+        // Leaves 2 min of slack for a late heartbeat. A write delayed by a network blip still
+        // counts, as Firestore queues it and stamps the server time when it arrives.
+        const val PRESENCE_ONLINE_WINDOW_MS = 300_000L
+        const val PRESENCE_RECHECK_MS = 30_000L
+    }
 }

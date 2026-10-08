@@ -1,25 +1,26 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
 }
 
 android {
     namespace = "com.example.evfunenhancer"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.evfunenhancer"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 15
         versionName = "2026.10.01"
     }
 
-    signingConfigs {
+    // Release signing is optional so the project builds without the private keystore properties
+    val releaseStoreFile = project.findProperty("ANDROID_STORE_FILE") as String?
+    if (releaseStoreFile != null) signingConfigs {
         create("release") {
-            storeFile = file(project.property("ANDROID_STORE_FILE") as String)
+            storeFile = file(releaseStoreFile)
             storePassword = project.property("ANDROID_STORE_PASSWORD") as String
             keyAlias = project.property("ANDROID_KEY_ALIAS") as String
             keyPassword = project.property("ANDROID_KEY_PASSWORD") as String
@@ -28,7 +29,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -40,10 +41,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = "11"
     }
 
     buildFeatures {
@@ -64,6 +61,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
 
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
