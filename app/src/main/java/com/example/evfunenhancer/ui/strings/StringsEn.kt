@@ -32,12 +32,18 @@ object StringsEn : AppStrings {
     override val enterRoomCode = "Enter room code"
     override val roomNotFound = "Room not found"
     override val shareRoomCode = "Share code"
+    override fun shareRoomText(code: String) =
+        "$code\n\n" +
+            "Android app: https://github-0.github.io/est\n" +
+            "Web app: https://github-0.github.io/est/app/index.html?room=$code"
     override val shareCodeLabel = listOf("SHARE", "CODE")
     override val shareCodeLabelJustified = true
     override val leave = "Leave room"
     override val renameUser = "Change Username"
     override val members = "Room Members"
     override fun memberOnline(username: String) = "$username is online"
+    override fun membersOnline(count: Int) = "$count online"
+    override val offlineTag = "OFFLINE"
 
     override val profileTab = "Settings"
     override val pointsTab = "Voting"
@@ -62,11 +68,9 @@ object StringsEn : AppStrings {
     override val cancel = "Cancel"
     override val remove = "Remove"
 
-    override val removeMembers = "Remove Room Members"
-    override fun removeMembersNotCreator(creatorUsername: String) =
-        "Only $creatorUsername can remove members from this room."
-    override val removeMembersNoCreatorInfo =
-        "Only the room creator can remove members (creator unknown for this room)."
+    override val removeMembers = "Delete room members"
+    override fun removeMembersHint(creatorUsername: String?) =
+        "Only the room creator (${creatorUsername ?: "unknown"}) can delete members."
     override val removeMembersSelectTitle = "Select member to remove"
     override fun removeMembersConfirmBody(username: String) =
         "Type YES to permanently remove $username and all their data."
@@ -113,6 +117,7 @@ object StringsEn : AppStrings {
     override val aftershowMostGenerous = "MOST GENEROUS VOTERS"
     override val aftershowMostRobbed = "MOST ROBBED"
     override val aftershowColGroup = "group"
+    override val aftershowOfficialTitleGroup = "group"
     override val aftershowColOfficial = "official"
     override val aftershowBiggestSurprise = "BIGGEST SURPRISE"
     override val aftershowRankShift = "RANK SHIFT"

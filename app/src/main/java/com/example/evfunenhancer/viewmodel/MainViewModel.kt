@@ -12,6 +12,7 @@ import com.example.evfunenhancer.data.PrefsStore
 import com.example.evfunenhancer.data.ShowResults
 import com.example.evfunenhancer.data.UpdateCheckResult
 import com.example.evfunenhancer.data.checkForUpdate
+import com.example.evfunenhancer.data.networkAvailableFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,6 +100,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun observeFirestoreConnectivity(): Flow<Boolean?> =
         repository.observeFirestoreConnectivity()
+
+    // True once the connection has been lost for OFFLINE_GRACE_MS: the device has no network,
+    // or Firestore hasn't confirmed a server connection (also before sign-in completes). Uses
+    // the local network callback and the snapshot metadata of a listener on `shows`, a query
+    // getShows already holds, so it adds no Firestore reads. The grace period also covers the
+    // cache-only snapshots right after startup.
+    val offline: StateFlow<Boolean> =
+        combine(
+            networkAvailableFlow(application),
+            _authReady.flatMapLatest { ready ->
+                if (ready) repository.observeFirestoreConnectivity() else flowOf(null)
+            }
+        ) { network, firestoreOnline -> !network || firestoreOnline != true }
+            .distinctUntilChanged()
+            .flatMapLatest { lost ->
+                if (lost) flow { emit(false); delay(OFFLINE_GRACE_MS); emit(true) } else flowOf(false)
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val members: StateFlow<Map<String, String>> = _roomCode
         .flatMapLatest { code ->
@@ -293,11 +313,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { ready -> if (ready) repository.watchResults("final") else flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Year of the participants and results in use: from the show documents, falling back to the
-    // results year for shows uploaded before they carried one.
+    // Year of the participants in use, from the show documents.
     val activeYear: StateFlow<Int?> = _authReady
         .flatMapLatest { ready -> if (ready) repository.watchShowsYear() else flowOf(null) }
-        .combine(results) { showsYear, res -> showsYear ?: res?.year }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _updateInfo = MutableStateFlow<UpdateCheckResult>(UpdateCheckResult.Pending)
@@ -535,5 +553,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // counts, as Firestore queues it and stamps the server time when it arrives.
         const val PRESENCE_ONLINE_WINDOW_MS = 300_000L
         const val PRESENCE_RECHECK_MS = 30_000L
+        const val OFFLINE_GRACE_MS = 10_000L
     }
 }

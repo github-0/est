@@ -1447,13 +1447,21 @@ private fun MostGenerousCard(data: AfterShowData, animVersion: Int = -1, sideIns
             Text(s.aftershowNoVotes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             val maxPts    = data.generousUsers.firstOrNull()?.second ?: 1
-            val minPts    = data.generousUsers.lastOrNull()?.second  ?: 0
+            // The bottom of the scale never sits above half the top total, so a small gap keeps the bars close.
+            val minPts    = minOf(data.generousUsers.lastOrNull()?.second ?: 0, maxPts / 2)
             val range     = (maxPts - minPts).takeIf { it > 0 }?.toFloat() ?: 1f
             val lastIndex = data.generousUsers.lastIndex
+            // The shortest bar is as wide as its content, so every row reserves the widest name and points label.
+            val measurer  = rememberTextMeasurer()
+            val density   = LocalDensity.current
+            val nameStyle = MaterialTheme.typography.bodyMedium
+            val ptsStyle  = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+            val nameWidth = with(density) { data.generousUsers.maxOf { measurer.measure(it.first, nameStyle).size.width }.toDp() }
+            val ptsWidth  = with(density) { data.generousUsers.maxOf { measurer.measure(s.aftershowPts(it.second), ptsStyle).size.width }.toDp() }
             data.generousUsers.forEachIndexed { i, (user, pts) ->
-                val fraction = 0.3f + 0.7f * (pts - minPts) / range
+                val fraction = (pts - minPts) / range
                 val warmth   = if (lastIndex > 0) 1f - i.toFloat() / lastIndex else 1f
-                GenerousVoterBar(i + 1, user, pts, fraction, warmth, animVersion = animVersion, animDelayMs = (i * 30).toLong())
+                GenerousVoterBar(i + 1, user, pts, fraction, warmth, nameWidth, ptsWidth, animVersion = animVersion, animDelayMs = (i * 30).toLong())
                 if (i < data.generousUsers.lastIndex) Spacer(Modifier.height(6.dp))
             }
         }
@@ -2766,7 +2774,7 @@ private fun OverlapBar(fraction: Float, label: String, color: Color, animVersion
 // ── Generous voters ───────────────────────────────────────────────────────────
 
 @Composable
-private fun GenerousVoterBar(rank: Int, user: String, pts: Int, fraction: Float, warmth: Float, animVersion: Int = -1, animDelayMs: Long = 0L) {
+private fun GenerousVoterBar(rank: Int, user: String, pts: Int, fraction: Float, warmth: Float, nameWidth: Dp, ptsWidth: Dp, animVersion: Int = -1, animDelayMs: Long = 0L) {
     val s = LocalAppStrings.current
     val color = generousVoterColor(warmth)
     val animFraction = remember(animVersion) { Animatable(if (animVersion == -1) fraction else 0f) }
@@ -2776,11 +2784,16 @@ private fun GenerousVoterBar(rank: Int, user: String, pts: Int, fraction: Float,
             animFraction.animateTo(fraction, tween(durationMillis = 350, easing = FastOutSlowInEasing))
         }
     }
-    // The bar is the row itself: at least as wide as its content, so the points sit at its end.
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    // The bar is the row itself, so the points sit at its end. Its width runs from the content
+    // width (fraction 0) to the full width (fraction 1).
     Row(
         modifier = Modifier
-            .widthIn(min = maxWidth * animFraction.value)
+            .layout { measurable, constraints ->
+                val content  = measurable.maxIntrinsicWidth(constraints.maxHeight).coerceAtMost(constraints.maxWidth)
+                val width    = content + ((constraints.maxWidth - content) * animFraction.value).toInt()
+                val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(
                 Brush.horizontalGradient(listOf(color.copy(alpha = 0.40f), color.copy(alpha = 0.12f))),
@@ -2797,19 +2810,20 @@ private fun GenerousVoterBar(rank: Int, user: String, pts: Int, fraction: Float,
             ) {
                 Text("$rank", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black.copy(alpha = 0.75f))
             }
-            Text(user, style = MaterialTheme.typography.bodyMedium)
+            Text(user, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(min = nameWidth))
         }
         Text(
             s.aftershowPts(pts),
             style = MaterialTheme.typography.labelMedium,
             color = color.copy(alpha = 0.85f),
             fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(start = 10.dp)
                 .background(color.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
                 .padding(horizontal = 9.dp, vertical = 3.dp)
+                .widthIn(min = ptsWidth)
         )
-    }
     }
 }
 
@@ -2866,7 +2880,7 @@ private fun OfficialResultsCard(data: AfterShowData, animVersion: Int = -1, side
         titleSegments = listOf(
             s.aftershowOfficialLabel to GlowGreen,
             "&" to MaterialTheme.colorScheme.onSurfaceVariant,
-            s.aftershowColGroup.uppercase() to GlowOrange,
+            s.aftershowOfficialTitleGroup.uppercase() to GlowOrange,
             s.aftershowResultsLabel to MaterialTheme.colorScheme.onSurfaceVariant
         ),
         accentColor = GlowGreen,

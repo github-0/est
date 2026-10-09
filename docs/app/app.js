@@ -20,6 +20,7 @@ const SHOW_IDS = ["semi1", "semi2", "final"];
 const HEARTBEAT_MS = 3 * 60 * 1000;   // same cadence as the app
 const ONLINE_MS = 5 * 60 * 1000;      // a member counts as online if their heartbeat is newer than this
 const DAY_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_GRACE_MS = 10 * 1000;   // same as the app
 
 // localStorage can be unavailable (private mode, blocked site data); the page works without it.
 const store = {
@@ -63,6 +64,10 @@ const state = {
 
 let auth, db;
 let showsWatched = false;
+let showsLoaded = false;
+let serverConnected = false;
+let offline = false;
+let offlineTimer = null;
 let roomUnsubs = [];
 let votesUnsub = null;
 let votesLoaded = false;
@@ -82,6 +87,9 @@ function start() {
     showError("configMissing");
     return;
   }
+  addEventListener("online", updateConnection);
+  addEventListener("offline", updateConnection);
+  updateConnection();
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
@@ -113,7 +121,12 @@ function showError(key) {
 function watchShows() {
   if (showsWatched) return;
   showsWatched = true;
-  onSnapshot(collection(db, col("shows")), snap => {
+  // Metadata changes carry the connection state (see updateConnection) and cost no reads.
+  onSnapshot(collection(db, col("shows")), { includeMetadataChanges: true }, snap => {
+    serverConnected = !snap.metadata.fromCache;
+    updateConnection();
+    if (showsLoaded && snap.docChanges().length === 0) return;   // metadata only
+    showsLoaded = true;
     const shows = {};
     let year = null;
     snap.forEach(d => {
@@ -121,12 +134,39 @@ function watchShows() {
       shows[d.id] = (data.participants ?? [])
         .map(p => ({ order: p.order ?? 0, country: p.country ?? "", artist: p.artist ?? "", song: p.song ?? "" }))
         .sort((a, b) => a.order - b.order);
-      if (Number.isInteger(data.year)) year = Math.max(year ?? data.year, data.year);
+      // Only the real show IDs count (admin.py hides shows as e.g. shows/final_test).
+      if (SHOW_IDS.includes(d.id) && Number.isInteger(data.year)) {
+        year = Math.max(year ?? data.year, data.year);
+      }
     });
     state.shows = shows;
     state.year = year;
     if (state.phase === "room") renderRoom();
   }, () => {});
+}
+
+// The "Offline" tag appears once the connection has been lost for OFFLINE_GRACE_MS: the browser
+// reports no network, or the shows listener hasn't confirmed a server connection (also before
+// sign-in completes). The grace period covers the cache-only snapshots at startup too.
+function updateConnection() {
+  if (navigator.onLine && serverConnected) {
+    clearTimeout(offlineTimer);
+    offlineTimer = null;
+    setOffline(false);
+  } else if (!offline && !offlineTimer) {
+    offlineTimer = setTimeout(() => { offlineTimer = null; setOffline(true); }, OFFLINE_GRACE_MS);
+  }
+}
+
+function setOffline(value) {
+  offline = value;
+  renderOfflineTag();
+}
+
+function renderOfflineTag() {
+  const tag = $(".offline-tag");
+  tag.textContent = t().offline;
+  tag.hidden = !offline;
 }
 
 // Re-enter the saved room if this browser is still a member of it.
@@ -338,6 +378,7 @@ function submitVote(order, points) {
 function render() {
   document.documentElement.lang = state.lang;
   document.querySelectorAll(".lang-btn").forEach(b => b.classList.toggle("active", b.dataset.lang === state.lang));
+  renderOfflineTag();
   const app = $("#app");
   switch (state.phase) {
     case "connecting":
@@ -513,7 +554,7 @@ function renderBoard(changed = new Set()) {
         <div class="progress"><i style="clip-path:inset(0 ${hidden}% 0 0)"></i></div>
       </div>
       <div class="table-wrap">
-        <table class="grid">
+        <table class="grid" style="--n:${members.length}">
           <thead><tr><th class="c-rank">#</th><th class="c-country"></th>${head}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -607,7 +648,7 @@ $(".banner-wrap").addEventListener("click", () => {
   location.reload();
 });
 
-if (testMode) $(".topbar").insertAdjacentHTML("beforeend", `<span class="test-tag">TEST</span>`);
+$(".test-tag").hidden = !testMode;
 
 document.querySelectorAll(".lang-btn").forEach(b => b.addEventListener("click", () => {
   state.lang = b.dataset.lang;

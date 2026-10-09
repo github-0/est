@@ -71,12 +71,16 @@ class FirestoreRepository(testMode: Boolean = false) {
     }
 
     // The year admin.py writes onto each show document (the latest one if they disagree);
-    // null when no show has a year yet.
+    // null when no show has a year yet. Only the real show IDs count, so shows hidden with
+    // admin.py (e.g. shows/final_test) don't keep their year on display.
     fun watchShowsYear(): Flow<Int?> = callbackFlow {
         val listener = col("shows")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null) return@addSnapshotListener
-                trySend(snapshot.documents.mapNotNull { it.getLong("year")?.toInt() }.maxOrNull())
+                trySend(snapshot.documents
+                    .filter { it.id in SHOW_IDS }
+                    .mapNotNull { it.getLong("year")?.toInt() }
+                    .maxOrNull())
             }
         awaitClose { listener.remove() }
     }
@@ -286,8 +290,6 @@ class FirestoreRepository(testMode: Boolean = false) {
             }
         awaitClose { listener.remove() }
     }
-
-    private val SHOW_IDS = listOf("semi1", "semi2", "final")
 
     suspend fun removeMember(roomCode: String, uidToRemove: String, usernameToRemove: String): Result<Unit> = try {
         val roomRef = col("rooms").document(roomCode)

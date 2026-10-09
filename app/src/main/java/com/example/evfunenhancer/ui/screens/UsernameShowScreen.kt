@@ -102,6 +102,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
+import com.example.evfunenhancer.data.SHOW_IDS
 import com.example.evfunenhancer.data.UpdateCheckResult
 import com.example.evfunenhancer.data.UpdateInfo
 import androidx.compose.ui.res.painterResource
@@ -123,25 +124,19 @@ import com.example.evfunenhancer.ui.theme.GradientPink
 import com.example.evfunenhancer.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
-private val SHOW_IDS = listOf("semi1", "semi2", "final")
 private val PillShape = RoundedCornerShape(50)
 
 private val GlowPink = Color(0xFFEC4899)
 private val GlowPurple = Color(0xFFA855F7)
 private val AccentBlue = Color(0xFF6d63fc)
 private val NavButtonColor = Color(0xFFcf37ed)
-// Emerald from the same Tailwind family as the theme's pink/purple/cyan, so it sits with both
-// the purple own-pill text and the light other-pill text. Cooler than a pure green, so it reads
-// as a status hint rather than a highlight. Cyan is avoided as it's the comments accent.
-private val OnlineGreen = Color(0xFF10B981)
 
 // Space between the pill and the tooltip; matches the Aftershow card jump strip's bubble.
 private val PressTooltipGap = 6.dp
-// Room around the bubble inside the popup window so its glow isn't clipped.
+// Room around the bubble inside the popup window, so it can sit at the window edge.
 private val PressTooltipGlowRoom = 12.dp
 
-// Shows a bubble above the content for exactly as long as a finger is on it. Styled like the
-// Aftershow card jump strip's bubble, with OnlineGreen as the accent.
+// Shows a quiet bubble above the content for exactly as long as a finger is on it.
 @Composable
 private fun PressTooltip(enabled: Boolean, text: String, content: @Composable () -> Unit) {
     if (!enabled) {
@@ -174,17 +169,15 @@ private fun PressTooltip(enabled: Boolean, text: String, content: @Composable ()
             Popup(popupPositionProvider = remember(gap, glowRoom) { AboveAnchorPositionProvider(gap, glowRoom) }) {
                 Box(Modifier.padding(PressTooltipGlowRoom)) {
                     Text(
-                        text.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
+                        text,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         modifier = Modifier
-                            .glow(OnlineGreen, radius = 12.dp, cornerRadius = 10.dp, alpha = 0.45f)
                             .clip(shape)
                             .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, OnlineGreen, shape)
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), shape)
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     )
                 }
@@ -880,7 +873,7 @@ fun UsernameShowScreen(
                                     modifier = Modifier.clickable {
                                         val intent = Intent(Intent.ACTION_SEND).apply {
                                             type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, lastRoomCode.value)
+                                            putExtra(Intent.EXTRA_TEXT, s.shareRoomText(lastRoomCode.value))
                                         }
                                         context.startActivity(Intent.createChooser(intent, null))
                                     },
@@ -922,11 +915,22 @@ fun UsernameShowScreen(
 
                         // Members
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                s.members.uppercase(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
+                            Row {
+                                Text(
+                                    s.members.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                                // Members online right now, you included; left out when you're the only one.
+                                val onlineCount = lastMembers.value.keys.count { it in shownOnlineUids }
+                                if (onlineCount > 1) {
+                                    Text(
+                                        "  ·  " + s.membersOnline(onlineCount).uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+                                    )
+                                }
+                            }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -934,12 +938,33 @@ fun UsernameShowScreen(
                                 lastMembers.value.entries.sortedBy { it.value }.forEach { (uid, name) ->
                                     val isMe = name == lastUsername.value
                                     val isOnline = uid in shownOnlineUids
+                                    // Quiet presence: whoever is here is a solid pill; whoever is away fades
+                                    // to an outline with a dim name. No status colour, nothing moves.
+                                    val away = !isOnline && !isMe
+                                    val presenceSpec = tween<Color>(1000)
+                                    val pillFill by animateColorAsState(
+                                        targetValue = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (away) 0f else 1f),
+                                        animationSpec = presenceSpec,
+                                        label = "memberPillFill"
+                                    )
+                                    val pillOutline by animateColorAsState(
+                                        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = if (away) 0.55f else 0f),
+                                        animationSpec = presenceSpec,
+                                        label = "memberPillOutline"
+                                    )
+                                    val nameColor by animateColorAsState(
+                                        targetValue = if (isMe) MaterialTheme.colorScheme.primary
+                                                      else MaterialTheme.colorScheme.onSurface.copy(alpha = if (away) 0.32f else 1f),
+                                        animationSpec = presenceSpec,
+                                        label = "memberNameColor"
+                                    )
                                     // Not on your own pill: a tap there opens rename, and the tooltip would flash.
                                     PressTooltip(enabled = isOnline && !isMe, text = s.memberOnline(name)) {
-                                        Box(
+                                        Row(
                                             modifier = Modifier
                                                 .clip(PillShape)
-                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                .background(pillFill)
+                                                .border(1.dp, pillOutline, PillShape)
                                                 .then(if (isMe) Modifier.clickable {
                                                     val name0 = currentUsername ?: ""
                                                     renameText = TextFieldValue(text = name0, selection = TextRange(name0.length))
@@ -947,43 +972,21 @@ fun UsernameShowScreen(
                                                     showRenameDialog = true
                                                 } else Modifier)
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                            ) {
-                                                // Online dot sits on the name's top-right corner, slightly overlapping it.
-                                                Box {
-                                                    Text(
-                                                        name,
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        color = if (isMe) MaterialTheme.colorScheme.primary
-                                                                else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    // The ring in the pill colour masks the part of the name under the dot.
-                                                    if (isOnline) {
-                                                        Box(
-                                                            Modifier
-                                                                .align(Alignment.TopEnd)
-                                                                .offset(x = 5.5.dp, y = 0.5.dp)
-                                                                .size(9.dp)
-                                                                // Ring as a background with the dot inset: a border drawn over
-                                                                // the dot leaves a faint anti-aliased halo of green outside it.
-                                                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                                                                .padding(1.5.dp)
-                                                                .background(OnlineGreen, CircleShape)
-                                                        )
-                                                    }
-                                                }
-                                                if (isMe) {
-                                                    Icon(
-                                                        Icons.Default.Edit,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                }
+                                            Text(
+                                                name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = nameColor
+                                            )
+                                            if (isMe) {
+                                                Icon(
+                                                    Icons.Default.Edit,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(13.dp)
+                                                )
                                             }
                                         }
                                     }

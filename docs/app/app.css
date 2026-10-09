@@ -20,7 +20,7 @@
   --flags:"Twemoji Country Flags";
 }
 @media(min-width:600px){
-  :root{--country-w:230px;}
+  :root{--country-w:200px;}
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{color-scheme:dark;}
@@ -46,8 +46,14 @@ a{color:var(--primary);}
 .lang-bar{display:flex;gap:2px;border:1px solid var(--outline-var);border-radius:999px;padding:3px;flex-shrink:0;}
 .lang-btn{border:none;background:none;color:var(--muted);font-weight:800;font-size:.72rem;letter-spacing:.1em;padding:5px 12px;border-radius:999px;}
 .lang-btn.active{background:var(--primary);color:#fff;}
-/* Shown while on the test database, like the app's "TEST" tag on the nav bar. */
-.test-tag{background:var(--error);color:#fff;font-weight:800;font-size:.65rem;letter-spacing:.15em;padding:2px 10px;border-radius:999px;flex-shrink:0;}
+/* "TEST" (test database) and offline tags, like the app's tags on the nav bar: tabs hanging from
+   the top edge of the viewport, visible however far the page is scrolled. Fixed and click-through,
+   so they take no space and the rest of the page lays out exactly as without them. */
+.edge-tags{position:fixed;left:50%;top:0;transform:translateX(-50%);z-index:20;display:flex;gap:6px;pointer-events:none;}
+.test-tag,.offline-tag{font-weight:800;font-size:.65rem;letter-spacing:.15em;padding:3px 14px;border-radius:0 0 10px 10px;box-shadow:0 2px 10px rgba(0,0,0,.45);white-space:nowrap;}
+.test-tag{background:var(--error);color:#fff;}
+.offline-tag{background:#F59E0B;color:#1A1300;}
+.test-tag[hidden],.offline-tag[hidden]{display:none;}
 
 main{max-width:760px;margin:0 auto;padding:8px 16px 48px;display:flex;flex-direction:column;gap:14px;}
 .status{text-align:center;color:var(--muted);padding:48px 16px;}
@@ -98,7 +104,7 @@ main{max-width:760px;margin:0 auto;padding:8px 16px 48px;display:flex;flex-direc
   border:1.5px solid var(--outline-var);background:var(--surface-var);border-radius:14px;padding:12px 6px;
   font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:.85rem;color:var(--muted);
 }
-.seg.active{border-color:transparent;background:linear-gradient(90deg,#EC4899,#A855F7);color:#fff;}
+.seg.active{border-color:transparent;background:linear-gradient(90deg,#EC4899,#A855F7) border-box;color:#fff;}
 .seg:disabled{opacity:.3;cursor:default;}
 
 /* Voting table */
@@ -111,8 +117,11 @@ main{max-width:760px;margin:0 auto;padding:8px 16px 48px;display:flex;flex-direc
 .progress i{display:block;height:100%;background:var(--brand);transition:clip-path .5s;}
 
 .table-wrap{overflow-x:auto;}
-table.grid{border-collapse:collapse;table-layout:fixed;width:max-content;min-width:100%;}
-.grid th,.grid td{width:var(--score-w);text-align:center;padding:12px 4px;font-variant-numeric:tabular-nums;}
+/* Fixed layout: member columns share whatever the # and flag columns leave; past --score-w each (--n = member count) the table scrolls. */
+table.grid{border-collapse:collapse;table-layout:fixed;width:100%;min-width:calc(var(--rank-w) + var(--country-w) + var(--n,1) * var(--score-w));}
+.grid th,.grid td{text-align:center;padding:12px 4px;font-variant-numeric:tabular-nums;}
+/* Extra room right of the last member so it doesn't look pushed against the card edge (only half a column of space there, vs a full one between members). */
+@media(min-width:600px){ .grid th:last-child,.grid td:last-child{padding-right:24px;} }
 .grid thead th{background:var(--header);color:var(--muted);font-weight:700;font-size:.9rem;border-bottom:2px solid var(--outline-var);}
 .grid tbody tr{background:var(--bg);cursor:pointer;}
 .grid tbody tr:nth-child(even){background:var(--row-alt);}
@@ -122,7 +131,9 @@ table.grid{border-collapse:collapse;table-layout:fixed;width:max-content;min-wid
 .grid .c-rank,.grid .c-country,.grid .c-own{position:sticky;background:inherit;z-index:1;}
 .grid thead .c-rank,.grid thead .c-country,.grid thead .c-own{background:var(--header);}
 .grid .c-rank{left:0;width:var(--rank-w);text-align:right;padding-right:2px;}
-.grid tbody .c-rank{background-image:linear-gradient(90deg,rgba(0,0,0,.6),rgba(0,0,0,.25));}
+/* One shade fading out across # and flag, like the app: both cells draw the same gradient, sized to span the two columns. */
+.grid tbody .c-rank,.grid tbody .c-country{background-image:linear-gradient(90deg,rgba(0,0,0,.6),transparent);background-size:calc(var(--rank-w) + var(--country-w)) 100%;background-repeat:no-repeat;}
+.grid tbody .c-country{background-position:calc(-1 * var(--rank-w)) 0;}
 .grid .c-country{left:var(--rank-w);width:var(--country-w);text-align:left;padding-left:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .grid .c-own{left:calc(var(--rank-w) + var(--country-w));box-shadow:4px 0 6px -4px rgba(0,0,0,.6);}
 .grid .flag{font-size:1.3rem;vertical-align:middle;}

@@ -7,7 +7,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Roboto:wght@500&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#15121d;
@@ -47,6 +47,7 @@ a:hover{text-decoration:underline;}
 .phone{width:240px;flex-shrink:0;border-radius:34px;padding:9px;background:#1c1728;box-shadow:24px 28px 60px -24px rgba(0,0,0,.7),0 0 0 1px var(--line);display:flex;flex-direction:column;}
 .phone img{display:block;width:100%;}
 .screen{border-radius:25px;overflow:hidden;}
+.status-bar{display:block;width:100%;}
 .slider-wrap{overflow:hidden;}
 .slider-track{display:flex;will-change:transform;transition:transform .45s cubic-bezier(.4,0,.2,1);}
 .phone .slider-track img{flex-shrink:0;border-radius:0;}
@@ -102,6 +103,19 @@ ul.tech li .sub::before{content:"›";position:absolute;left:0;opacity:.4;}
       </div>
       <div class="phone">
         <div class="screen">
+        <!-- Placeholder Android status bar, drawn in screenshot pixels (720 px wide), so the screenshots can stay cropped below it. -->
+        <svg class="status-bar" viewBox="0 0 720 56" aria-hidden="true">
+          <rect width="720" height="56" fill="#0d0b1e"/>
+          <text id="status-time" x="58" y="40" fill="#b4adc4" font-family="Roboto,sans-serif" font-size="28" font-weight="500" text-rendering="geometricPrecision">21:00</text>
+          <circle cx="360" cy="28" r="12" fill="#000"/>
+          <g fill="#b4adc4">
+            <path d="M0 0L-16 -16A22.6 22.6 0 0 1 16 -16Z" transform="translate(546 40)"/>
+            <path d="M0 0H24V-24Z" transform="translate(576 40)"/>
+            <rect x="620" y="14" width="14" height="28" rx="3" fill-opacity=".35"/>
+            <rect x="620" y="19" width="14" height="23" rx="3"/>
+            <rect x="623" y="11" width="8" height="4" rx="1"/>
+          </g>
+        </svg>
         <div class="slider-wrap">
           <div class="slider-track" id="slider-track">
             <img data-screen="join" src="assets/screenshots/en_join.webp" alt="Create or join a room">
@@ -230,6 +244,13 @@ setLang(initial);
       lastTap = now;
     }
   });
+})();
+
+// Status bar clock: the visitor's local time at page load (doesn't tick).
+(function(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('status-time').textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 })();
 
 // Screenshot carousel

@@ -2,6 +2,7 @@ package com.example.evfunenhancer.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -83,8 +85,6 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
     var showMemberListDialog by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<Pair<String, String>?>(null) }
     var confirmText by remember { mutableStateOf("") }
-    var resultMessage by remember { mutableStateOf<String?>(null) }
-    var resultIsSuccess by remember { mutableStateOf(true) }
 
     var showSwitchDatabaseDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -119,71 +119,52 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
         }
     }
 
-    // Member list dialog — shows either the member list (creator) or an explanation (non-creator)
+    // Member list dialog — only reachable by the room creator (the Remove button is disabled otherwise)
     if (showMemberListDialog) {
         val otherMembers = members.entries
             .filter { (uid, _) -> uid != vm.myUid }
             .sortedBy { (_, username) -> username }
 
-        if (isRoomCreator) {
-            AlertDialog(
-                onDismissRequest = { showMemberListDialog = false },
-                title = { Text(s.removeMembersSelectTitle) },
-                text = {
-                    Column {
-                        if (otherMembers.isEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showMemberListDialog = false },
+            title = { Text(s.removeMembersSelectTitle) },
+            text = {
+                Column {
+                    if (otherMembers.isEmpty()) {
+                        Text(
+                            "—",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        otherMembers.forEach { (uid, username) ->
                             Text(
-                                "—",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.outline
+                                username,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showMemberListDialog = false
+                                        confirmText = ""
+                                        pendingRemoval = uid to username
+                                    }
+                                    .padding(vertical = 12.dp)
                             )
-                        } else {
-                            otherMembers.forEach { (uid, username) ->
-                                Text(
-                                    username,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            showMemberListDialog = false
-                                            confirmText = ""
-                                            pendingRemoval = uid to username
-                                        }
-                                        .padding(vertical = 12.dp)
-                                )
-                            }
                         }
                     }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showMemberListDialog = false }) {
-                        Text(s.cancel)
-                    }
                 }
-            )
-        } else {
-            val creatorUsername = creatorUid?.let { members[it] }
-            AlertDialog(
-                onDismissRequest = { showMemberListDialog = false },
-                text = {
-                    Text(
-                        if (creatorUsername != null) s.removeMembersNotCreator(creatorUsername)
-                        else s.removeMembersNoCreatorInfo,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { showMemberListDialog = false }) {
-                        Text(s.cancel)
-                    }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showMemberListDialog = false }) {
+                    Text(s.cancel)
                 }
-            )
-        }
+            }
+        )
     }
 
     // Confirmation dialog — stays open while the removal is in progress so the user gets
-    // immediate feedback; the result message appears right as the dialog closes.
+    // immediate feedback; the result toast appears right as the dialog closes.
     pendingRemoval?.let { (uidToRemove, username) ->
         var isRemoving by remember { mutableStateOf(false) }
         val focusRequester = remember { FocusRequester() }
@@ -231,9 +212,11 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                             val result = vm.removeMember(uidToRemove)
                             pendingRemoval = null
                             confirmText = ""
-                            resultIsSuccess = result.isSuccess
-                            resultMessage = if (result.isSuccess) s.removeMembersSuccess
-                                           else s.removeMembersFailed
+                            Toast.makeText(
+                                context,
+                                if (result.isSuccess) s.removeMembersSuccess else s.removeMembersFailed,
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 ) { Text(s.remove) }
@@ -294,6 +277,9 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 null -> s.maintenanceStatusChecking
             }
 
+            // Section titles stand apart from the bodyLarge row labels below them
+            val sectionTitleStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
+
             // ── Section A: Application status ──────────────────────────────
             Row(
                 Modifier
@@ -303,7 +289,10 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text(s.maintenanceSectionStatus, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        s.maintenanceSectionStatus,
+                        style = sectionTitleStyle
+                    )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
@@ -406,7 +395,7 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
 
             Text(
                 s.maintenanceSectionTools,
-                style = MaterialTheme.typography.titleMedium,
+                style = sectionTitleStyle,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
@@ -430,28 +419,27 @@ fun MaintenanceScreen(vm: MainViewModel = viewModel(), onBack: () -> Unit = {}) 
                 )
             }
 
-            Button(
-                onClick = {
-                    resultMessage = null
-                    showMemberListDialog = true
-                },
-                enabled = roomCode != null,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                ),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(s.removeMembers)
-            }
-
-            resultMessage?.let { msg ->
-                Text(
-                    msg,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (resultIsSuccess) Color(0xFF4CAF50)
-                            else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(s.removeMembers, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        s.removeMembersHint(creatorUid?.let { members[it] }),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(
+                    onClick = { showMemberListDialog = true },
+                    enabled = roomCode != null && isRoomCreator,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(s.remove)
+                }
             }
 
             Spacer(Modifier.padding(bottom = 16.dp))

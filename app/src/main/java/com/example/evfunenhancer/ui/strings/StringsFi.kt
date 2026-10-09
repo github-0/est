@@ -33,12 +33,18 @@ object StringsFi : AppStrings {
     override val enterRoomCode = "Syötä huonekoodi"
     override val roomNotFound = "Huonetta ei löydy"
     override val shareRoomCode = "Jaa huonekoodi"
+    override fun shareRoomText(code: String) =
+        "$code\n\n" +
+            "Android-sovellus: https://github-0.github.io/est\n" +
+            "Web-versio: https://github-0.github.io/est/app/index.html?room=$code"
     override val shareCodeLabel = listOf("JAA", "KOODI")
     override val shareCodeLabelJustified = false
     override val leave = "Poistu huoneesta"
     override val renameUser = "Vaihda käyttäjänimi"
     override val members = "Jäsenet"
     override fun memberOnline(username: String) = "$username on paikalla"
+    override fun membersOnline(count: Int) = "$count paikalla"
+    override val offlineTag = "EI YHTEYTTÄ"
 
     override val profileTab = "Asetukset"
     override val pointsTab = "Äänestys"
@@ -64,10 +70,8 @@ object StringsFi : AppStrings {
     override val remove = "Poista"
 
     override val removeMembers = "Poista huoneen jäseniä"
-    override fun removeMembersNotCreator(creatorUsername: String) =
-        "Vain $creatorUsername voi poistaa jäseniä tästä huoneesta."
-    override val removeMembersNoCreatorInfo =
-        "Vain huoneen luoja voi poistaa jäseniä (luoja ei tiedossa tässä huoneessa)."
+    override fun removeMembersHint(creatorUsername: String?) =
+        "Vain huoneen luoja (${creatorUsername ?: "tuntematon"}) voi poistaa jäseniä."
     override val removeMembersSelectTitle = "Valitse poistettava jäsen"
     override fun removeMembersConfirmBody(username: String) =
         "Kirjoita KYLLÄ poistaaksesi ${username}n kaikki tiedot pysyvästi."
@@ -114,6 +118,7 @@ object StringsFi : AppStrings {
     override val aftershowMostGenerous = "ANTELIAIMMAT ÄÄNESTÄJÄT"
     override val aftershowMostRobbed = "KUKA ANSAITSI ENEMMÄN"
     override val aftershowColGroup = "Ryhmä"
+    override val aftershowOfficialTitleGroup = "Ryhmän"
     override val aftershowColOfficial = "Eurooppa"
     override val aftershowBiggestSurprise = "MUIDEN SUOSIKKI"
     override val aftershowRankShift = "SIJOITUSTEN VERTAILU"

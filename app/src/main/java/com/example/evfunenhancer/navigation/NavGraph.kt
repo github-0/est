@@ -86,6 +86,7 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
     val isReady = username != null && selectedShow != null && roomCode != null
     // The saved room is restored before startup completes; don't celebrate that as an unlock.
     val startupComplete by vm.startupComplete.collectAsState()
+    val offline by vm.offline.collectAsState()
 
     val strings: AppStrings = if (language == "fi") StringsFi else StringsEn
     val disclaimerAccepted by vm.disclaimerAccepted.collectAsState()
@@ -164,7 +165,11 @@ fun NavGraph(vm: MainViewModel = viewModel()) {
                         )
                     )
                 }
-                TicketNavBar(items = items, testMode = vm.testMode)
+                TicketNavBar(
+                    items = items,
+                    testMode = vm.testMode,
+                    offlineLabel = if (offline) strings.offlineTag else null,
+                )
             }
         ) { padding ->
             NavHost(

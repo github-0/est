@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -82,26 +83,48 @@ data class TicketNavItem(
  * edge, and the active tab "stamps" onto a rotated colour block in that tab's own hue.
  */
 @Composable
-fun TicketNavBar(items: List<TicketNavItem>, modifier: Modifier = Modifier, testMode: Boolean = false) {
+fun TicketNavBar(
+    items: List<TicketNavItem>,
+    modifier: Modifier = Modifier,
+    testMode: Boolean = false,
+    /** Non-null while the connection is lost: shown as a tag next to the "TEST" tag. */
+    offlineLabel: String? = null,
+) {
     Box(modifier.fillMaxWidth()) {
         TicketNavBarContent(items)
-        if (testMode) TestModeTag(Modifier.align(Alignment.TopCenter))
+        if (testMode || offlineLabel != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-2).dp)
+            ) {
+                if (testMode) EdgeTag("TEST", Color.White, MaterialTheme.colorScheme.error)
+                if (offlineLabel != null) EdgeTag(offlineLabel, OfflineTagText, OfflineTagBackground)
+            }
+        }
     }
 }
 
-/** "TEST" tag straddling the perforated edge, shown on every tab while on the test database. */
+private val OfflineTagBackground = Color(0xFFF59E0B)
+private val OfflineTagText = Color(0xFF1A1300)
+
+/**
+ * Tag on the perforated edge, shown on every tab: "TEST" while on the test database, and the
+ * offline tag while the connection is lost. Overlaid on the bar (no effect on its layout) and
+ * only 2 dp above its top edge, so it covers nothing in the screen above.
+ */
 @Composable
-private fun TestModeTag(modifier: Modifier = Modifier) {
+private fun EdgeTag(text: String, color: Color, background: Color) {
     Text(
-        "TEST",
-        color = Color.White,
+        text,
+        color = color,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 2.sp,
-        modifier = modifier
-            .offset(y = (-9).dp)
+        modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.error)
+            .background(background)
             .padding(horizontal = 10.dp, vertical = 1.dp)
     )
 }

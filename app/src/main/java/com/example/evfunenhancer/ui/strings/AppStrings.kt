@@ -27,6 +27,8 @@ interface AppStrings {
     val enterRoomCode: String
     val roomNotFound: String
     val shareRoomCode: String
+    /** Text sent by the room code share button: the code plus app and web links. */
+    fun shareRoomText(code: String): String
     /** Room code share button label, one word per line. */
     val shareCodeLabel: List<String>
     /** True: spread letters so the words end flush. False: center the words. */
@@ -35,6 +37,9 @@ interface AppStrings {
     val renameUser: String
     val members: String
     fun memberOnline(username: String): String
+    fun membersOnline(count: Int): String
+    /** Nav bar tag shown while the connection has been lost for a while. */
+    val offlineTag: String
 
     // Nav tabs
     val profileTab: String
@@ -66,8 +71,7 @@ interface AppStrings {
 
     // Member removal (Maintenance screen)
     val removeMembers: String
-    fun removeMembersNotCreator(creatorUsername: String): String
-    val removeMembersNoCreatorInfo: String
+    fun removeMembersHint(creatorUsername: String?): String
     val removeMembersSelectTitle: String
     fun removeMembersConfirmBody(username: String): String
     val removeMembersConfirmWord: String
@@ -118,6 +122,7 @@ interface AppStrings {
     val aftershowMostGenerous: String
     val aftershowMostRobbed: String
     val aftershowColGroup: String
+    val aftershowOfficialTitleGroup: String
     val aftershowColOfficial: String
     val aftershowBiggestSurprise: String
     val aftershowRankShift: String
